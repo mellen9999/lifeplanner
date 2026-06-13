@@ -604,7 +604,7 @@ function renderCalendar() {
   const grid = el("div", "grid");
   DOW.forEach(d => grid.appendChild(el("div", "dow", d)));
 
-  const byDay = indexByDay();
+  const byDay = itemsByDay();
   const lead = (startOfMonth(calCursor).getDay() + 6) % 7; // monday = 0
   const daysInMonth = new Date(calCursor.getFullYear(), calCursor.getMonth() + 1, 0).getDate();
   const prevDays = new Date(calCursor.getFullYear(), calCursor.getMonth(), 0).getDate();
@@ -620,14 +620,18 @@ function renderCalendar() {
     if (ds === todayIso()) c.classList.add("today");
     if (ds === selDay) c.classList.add("sel");
     c.appendChild(el("div", "num", String(day)));
-    const marks = el("div", "marks");
     const info = byDay[ds];
     if (info) {
-      if (info.ach) marks.appendChild(el("span", "mk ach"));
-      if (info.appt) marks.appendChild(el("span", "mk appt"));
-      if (info.todo) marks.appendChild(el("span", "mk todo"));
+      const evs = el("div", "cell-events");
+      const lines = [];
+      info.appts.forEach(a => lines.push(["appt", a.time, a.title, false]));
+      info.todos.forEach(t => lines.push(["todo", "", t.title, t.done]));
+      info.wins.forEach(w => lines.push(["ach", "", w.title, false]));
+      const CAP = 4;
+      lines.slice(0, CAP).forEach(([k, tm, ti, dn]) => evs.appendChild(eventLine(k, tm, ti, dn)));
+      if (lines.length > CAP) evs.appendChild(el("div", "cell-more", `+${lines.length - CAP} more`));
+      c.appendChild(evs);
     }
-    c.appendChild(marks);
     c.onclick = () => { selDay = ds; render(); };
     grid.appendChild(c);
   }
@@ -670,15 +674,27 @@ function renderDayPanel() {
   return panel;
 }
 
-function indexByDay() {
+// one compact labeled line in a calendar cell: [colored mark] [time] title
+function eventLine(kind, time, title, done) {
+  const li = el("div", "cell-ev" + (done ? " done" : ""));
+  li.appendChild(el("span", "mk " + kind));
+  if (time) li.appendChild(el("span", "cell-time", time));
+  li.appendChild(el("span", "cell-title", title));
+  return li;
+}
+
+// actual items per day for the visible month grid (appointment occurrences
+// expanded, with their times) — so the calendar shows what's on, not just dots.
+function itemsByDay() {
   const m = {};
-  const touch = (ds, k) => { (m[ds] = m[ds] || {})[k] = true; };
-  // expand appointment occurrences across the visible grid (month ± padding week)
+  const get = ds => (m[ds] = m[ds] || { appts: [], todos: [], wins: [] });
   const from = addDays(iso(startOfMonth(calCursor)), -7);
   const to = addDays(iso(new Date(calCursor.getFullYear(), calCursor.getMonth() + 1, 0)), 7);
-  state.appointments.forEach(a => apptOccurrences(a, from, to).forEach(w => touch(w.slice(0, 10), "appt")));
-  state.todos.forEach(t => { if (t.due) touch(t.due, "todo"); });
-  state.achievements.forEach(a => { if (a.date) touch(a.date, "ach"); });
+  state.appointments.forEach(a => apptOccurrences(a, from, to).forEach(w =>
+    get(w.slice(0, 10)).appts.push({ when: w, time: timeOf(w), title: a.title })));
+  state.todos.forEach(t => { if (t.due) get(t.due).todos.push(t); });
+  state.achievements.forEach(a => { if (a.date) get(a.date).wins.push(a); });
+  Object.values(m).forEach(d => d.appts.sort((a, b) => (a.when > b.when ? 1 : -1)));
   return m;
 }
 

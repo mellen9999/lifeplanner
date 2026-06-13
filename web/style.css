@@ -131,9 +131,22 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .dow { text-align: center; color: var(--muted); font-size: 11px; padding: 4px 0;
   border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); text-transform: uppercase; }
 .cell {
-  min-height: 64px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
-  padding: 4px 5px; cursor: pointer; display: flex; flex-direction: column; gap: 3px;
+  min-height: 98px; min-width: 0; overflow: hidden;
+  border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  padding: 4px 5px; cursor: pointer; display: flex; flex-direction: column; gap: 2px;
 }
+/* labeled events inside a day cell — time + title, truncated, color-marked */
+.cell-events { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; overflow: hidden; }
+.cell-ev { display: flex; align-items: center; gap: 4px; font-size: 12px; line-height: 1.35;
+  white-space: nowrap; overflow: hidden; min-width: 0; }
+.cell-ev .mk { width: 7px; height: 7px; }
+.cell-ev .cell-time { color: var(--muted); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.cell-ev .cell-title { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.cell-ev.done .cell-title { text-decoration: line-through; color: var(--muted); }
+.cell-more { font-size: 11px; color: var(--muted); padding-left: 1px; }
+/* keep muted bits legible when the cell inverts on hover/select */
+.cell:hover .cell-time, .cell.sel .cell-time, .cell:hover .cell-more, .cell.sel .cell-more,
+.cell:hover .cell-ev.done .cell-title, .cell.sel .cell-ev.done .cell-title { color: var(--inv-fg); }
 .cell.pad { cursor: default; opacity: .35; }
 .cell:not(.pad):hover, .cell.sel { background: var(--inv-bg); color: var(--inv-fg); }
 .cell.today .num { outline: 2px solid var(--accent); outline-offset: 1px; }
