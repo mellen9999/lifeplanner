@@ -120,9 +120,12 @@ def add_appointment(title: str, when: str, location: str = "", note: str = "",
     """add an appointment. when = 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM'.
     to repeat it, set recur = 'daily' | 'weekly' | 'monthly' and interval = N
     (e.g. recur='weekly', interval=2 on a thursday = every other thursday)."""
-    return store.add_item("appointments",
-                          {"title": title, "when": when, "location": location,
-                           "note": note, "recur": _recur(recur, interval)})
+    try:
+        return store.add_item("appointments",
+                              {"title": title, "when": when, "location": location,
+                               "note": note, "recur": _recur(recur, interval)})
+    except store.SyncError:
+        return {"error": "calendar server unreachable — not saved"}
 
 
 @mcp.tool()
@@ -136,7 +139,10 @@ def update_appointment(item_id: str, title: str = "", when: str = "",
              {"title": title, "when": when, "location": location, "note": note}.items() if v}
     if recur:
         patch["recur"] = "" if recur.lower() == "none" else _recur(recur, interval)
-    return store.update_item("appointments", item_id, patch) or {"error": "not found", "id": item_id}
+    try:
+        return store.update_item("appointments", item_id, patch) or {"error": "not found", "id": item_id}
+    except store.SyncError:
+        return {"error": "calendar server unreachable — not saved"}
 
 
 @mcp.tool()
@@ -175,7 +181,10 @@ def delete_item(kind: str, item_id: str) -> dict:
     """delete an item. kind = achievements | todos | appointments."""
     if kind not in store.ENTITIES:
         return {"error": f"kind must be one of {store.ENTITIES}"}
-    return {"deleted": store.delete_item(kind, item_id), "id": item_id}
+    try:
+        return {"deleted": store.delete_item(kind, item_id), "id": item_id}
+    except store.SyncError:
+        return {"error": "calendar server unreachable — not deleted"}
 
 
 if __name__ == "__main__":

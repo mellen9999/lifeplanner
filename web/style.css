@@ -48,6 +48,7 @@ body {
 #accents { display: flex; gap: 5px; }
 .swatch {
   width: 15px; height: 15px; border: 1px solid var(--line); cursor: pointer; padding: 0;
+  border-radius: 0;
 }
 .swatch.active { outline: 2px solid var(--fg); outline-offset: 1px; }
 #theme-btn, #help-btn {
@@ -97,7 +98,7 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .row .when { color: var(--muted); flex: 0 0 auto; min-width: 116px; font-variant-numeric: tabular-nums; }
 .row .body { flex: 1 1 auto; }
 .row .title { }
-.row .sub { color: var(--muted); font-size: 12px; }
+.row .sub { color: var(--muted); font-size: 13px; }
 .row .del { margin-left: auto; color: var(--muted); cursor: pointer; padding: 0 4px; }
 .row:hover .del:hover, .row.sel .del:hover { color: var(--inv-bg); background: var(--inv-fg); }
 .row.done .title { text-decoration: line-through; color: var(--muted); }
@@ -106,7 +107,7 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
   display: inline-block; cursor: pointer; text-align: center; line-height: 13px; font-size: 12px;
 }
 .empty { color: var(--muted); padding: 18px 10px; border: 1px dashed var(--line); }
-.count { color: var(--muted); font-size: 12px; margin-left: 8px; }
+.count { color: var(--muted); font-size: 13px; margin-left: 8px; }
 
 /* type dots/squares */
 .mk { display: inline-block; width: 8px; height: 8px; flex: 0 0 auto; }
@@ -166,13 +167,13 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .agenda { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-items: start; }
 @media (max-width: 720px) { .agenda { grid-template-columns: 1fr; } }
 .card2 { border: 1px solid var(--line); padding: 10px 12px; }
-.card2 h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+.card2 h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
   margin-bottom: 8px; font-weight: 600; }
 .card2 .li { display: flex; gap: 9px; align-items: baseline; padding: 4px 0;
   border-bottom: 1px solid var(--line); }
 .card2 .li:last-of-type { border-bottom: none; }
 .card2 .li.overdue { color: var(--todo); }
-.card2 .li .sub { color: var(--muted); font-size: 12px; }
+.card2 .li .sub { color: var(--muted); font-size: 13px; }
 .card2 .li.overdue .sub { color: var(--todo); }
 .card2 .tick { width: 14px; height: 14px; line-height: 12px; }
 .quick { margin-top: 9px; display: flex; gap: 6px; }
@@ -193,10 +194,30 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .hm-grid { display: flex; gap: 3px; }
 .hm-col { display: flex; flex-direction: column; gap: 3px; }
 .hm { width: 12px; height: 12px; border: 1px solid var(--line); }
-.hm.lvl1 { background: #1a7a3f; border-color: #1a7a3f; }
-.hm.lvl2 { background: #2ecc71; border-color: #2ecc71; }
-.hm.lvl3 { background: #3bff7a; border-color: #3bff7a; }
+.hm.lvl1 { background: #00875f; border-color: #00875f; }
+.hm.lvl2 { background: #00d75f; border-color: #00d75f; }
+.hm.lvl3 { background: #5fffaf; border-color: #5fffaf; }
 .hm.future { opacity: .2; }
+
+/* ---- sync banner (honest staleness) ---- */
+#syncbar {
+  flex: 0 0 auto; background: var(--bg); color: var(--todo);
+  border-bottom: 1px solid var(--todo); padding: 5px 16px;
+  font: 13px var(--mono); letter-spacing: .3px;
+}
+#syncbar[hidden] { display: none; }
+
+/* ---- error toast (failed actions never silent) ---- */
+#toast {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  background: var(--bg); color: #ff5f5f; border: 1px solid #ff5f5f;
+  padding: 8px 16px; font: 13px var(--mono); z-index: 20; max-width: 80%;
+}
+#toast[hidden] { display: none; }
+
+/* ---- armed delete (first 'd' of 'dd') ---- */
+.row.arming, .row.sel.arming { background: #ff5f5f; color: #000; }
+.row.arming .muted, .row.arming .when, .row.arming .sub { color: #000; }
 
 /* ---- inline edit ---- */
 .rowedit { margin-left: auto; color: var(--muted); cursor: pointer; padding: 0 6px; font-size: 12px; }

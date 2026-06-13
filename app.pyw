@@ -98,6 +98,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(201, store.add_item(entity, data))
         except ValueError as e:
             return self._json(400, {"error": str(e)})
+        except store.SyncError:
+            return self._json(503, {"error": "calendar server unreachable — not saved"})
 
     def do_PUT(self):
         if urlparse(self.path).path == "/api/settings":
@@ -114,14 +116,20 @@ class Handler(BaseHTTPRequestHandler):
         data = self._body()
         if data is None:
             return self._json(400, {"error": "bad json"})
-        item = store.update_item(entity, item_id, data)
+        try:
+            item = store.update_item(entity, item_id, data)
+        except store.SyncError:
+            return self._json(503, {"error": "calendar server unreachable — not saved"})
         return self._json(200, item) if item else self._json(404, {"error": "not found"})
 
     def do_DELETE(self):
         entity, item_id = self._entity_id(urlparse(self.path).path)
         if entity is None:
             return self._json(404, {"error": "not found"})
-        ok = store.delete_item(entity, item_id)
+        try:
+            ok = store.delete_item(entity, item_id)
+        except store.SyncError:
+            return self._json(503, {"error": "calendar server unreachable — not deleted"})
         return self._json(200, {"deleted": ok}) if ok else self._json(404, {"error": "not found"})
 
     # -- path parsing ---------------------------------------------------------

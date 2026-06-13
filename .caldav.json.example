@@ -1,0 +1,5 @@
+{
+  "url": "http://YOUR-CALDAV-HOST:5232/USER/COLLECTION/",
+  "user": "USER",
+  "pass": "PASSWORD"
+}

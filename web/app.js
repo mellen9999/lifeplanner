@@ -121,10 +121,38 @@ async function refresh() {
 
 async function add(entity, data) {
   try { await api("POST", `/api/${entity}`, data); await refresh(); }
-  catch (e) { console.warn("[lifeplanner]", e.message); }
+  catch (e) { toast(e.message); }
 }
-async function patch(entity, id, data) { await api("PATCH", `/api/${entity}/${id}`, data); await refresh(); }
-async function remove(entity, id) { await api("DELETE", `/api/${entity}/${id}`); await refresh(); }
+async function patch(entity, id, data) {
+  try { await api("PATCH", `/api/${entity}/${id}`, data); await refresh(); }
+  catch (e) { toast(e.message); }
+}
+async function remove(entity, id) {
+  try { await api("DELETE", `/api/${entity}/${id}`); await refresh(); }
+  catch (e) { toast(e.message); }
+}
+
+// transient error/feedback line — failed actions are never silent
+let toastTimer = null;
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 3500);
+}
+
+// honest staleness signal — when appointments come from cache (sync server
+// unreachable) the user is told, never shown stale data as if it were current
+function renderSyncBanner() {
+  const bar = document.getElementById("syncbar");
+  if ((state.sync || {}).source === "cache") {
+    bar.textContent = "⚠ calendar server unreachable — showing last saved · press r to retry";
+    bar.hidden = false;
+  } else {
+    bar.hidden = true;
+  }
+}
 
 // ---- theme ------------------------------------------------------------------
 
@@ -186,6 +214,7 @@ function sortedTodos() {
 // ---- render -----------------------------------------------------------------
 
 function render() {
+  renderSyncBanner();
   renderToday();
   renderCalendar();
   renderAppointments();
@@ -708,6 +737,7 @@ document.addEventListener("keydown", (e) => {
     case "5": setView("todos"); break;
     case "n": e.preventDefault(); focusAdd(); break;
     case "e": e.preventDefault(); editSel(); break;
+    case "Enter": e.preventDefault(); editSel(); break;
     case "t": toggleTheme(); break;
     case "r": refresh(); break;
     case "?": help.hidden = !help.hidden; break;
@@ -718,7 +748,16 @@ document.addEventListener("keydown", (e) => {
     case "x": toggleSelTodo(); break;
     case "d":
       if (pendingDelete) { deleteSel(); pendingDelete = false; }
-      else { pendingDelete = true; setTimeout(() => pendingDelete = false, 600); }
+      else {
+        pendingDelete = true;
+        // show the armed state so the second 'd' isn't a blind destructive action
+        const armed = document.querySelector(`#${view} .row.sel`);
+        if (armed) armed.classList.add("arming");
+        setTimeout(() => {
+          pendingDelete = false;
+          document.querySelectorAll(".row.arming").forEach(r => r.classList.remove("arming"));
+        }, 600);
+      }
       break;
     default: pendingDelete = false;
   }

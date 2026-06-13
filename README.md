@@ -84,6 +84,28 @@ on your phone:
 read-only by design: you edit in the app, the phone just shows it. no always-on server, no network
 exposure, survives reboots.
 
+## two-way phone sync (optional, self-hosted)
+
+want appointments you create on your phone to show up here too (and vice versa)? back the
+**appointments** entity with a [caldav](https://en.wikipedia.org/wiki/CalDAV) server instead of local
+json. achievements, todos and wins stay local — only appointments sync.
+
+1. run a caldav server you control — [radicale](https://radicale.org) is tiny and foss. create a
+   collection (calendar) and a user/password.
+2. `pip install icalendar defusedxml` (into the same venv as the app).
+3. copy `.caldav.json.example` to `.caldav.json` and fill in your server url, user, password. it's
+   gitignored — your credentials never get committed.
+4. restart the app. appointments now live on your server; on your phone, point a caldav client
+   ([DAVx5](https://www.davx5.com), foss) at the same collection.
+
+it's a single source of truth — no two-store merge — so a change on either side appears on the other.
+the desktop keeps a local cache and tells you (a banner) when the server is unreachable, rather than
+silently showing stale data. with no `.caldav.json`, appointments stay local json and none of this
+applies — the zero-infra default is unchanged.
+
+> keep the server private (a LAN or a mesh vpn like [tailscale](https://tailscale.com)); don't expose
+> caldav to the public internet.
+
 ## configuration
 
 all optional, via environment variables:

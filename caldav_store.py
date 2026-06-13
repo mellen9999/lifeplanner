@@ -47,7 +47,7 @@ def config():
         cfg = json.loads(CONFIG_FILE.read_text("utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    if not (cfg.get("url") and cfg.get("user")):
+    if not (cfg.get("url") and cfg.get("user") and cfg.get("pass")):
         return None
     return cfg
 
@@ -93,9 +93,14 @@ def _local_when(dtval):
 
 
 def _parse_rrule(rrule):
-    """icalendar vRecur -> lifeplanner recur dict, or '' for unsupported rules
-    (fail safe: an exotic phone RRULE shows as a single event, never crashes)."""
+    """icalendar vRecur -> lifeplanner recur dict, or '' for any rule richer than
+    lifeplanner's model (FREQ + INTERVAL + UNTIL only). a phone rule with BYDAY /
+    COUNT / etc. returns '' so it shows as a single event and is NEVER re-modeled
+    or destroyed on write-back — the raw event is preserved verbatim instead."""
     if not rrule:
+        return ""
+    # WKST (week-start) is harmless metadata; anything else we don't model = bail
+    if set(rrule.keys()) - {"FREQ", "INTERVAL", "UNTIL", "WKST"}:
         return ""
     freq = str(rrule.get("FREQ", [""])[0]).lower()
     if freq not in RECUR_FREQS:
@@ -111,14 +116,16 @@ def _parse_rrule(rrule):
     return {"freq": freq, "interval": interval, "until": until}
 
 
-def _event_to_appt(comp, href, etag):
+def _event_to_appt(comp, href, etag, raw_ical=""):
     uid = str(comp.get("uid", ""))
     # lifeplanner-origin events carry our 12-hex id in the UID; phone events get a
     # stable id derived from the resource path so edits/deletes can round-trip.
     if uid.endswith("@lifeplanner"):
         item_id = uid.split("@", 1)[0]
     else:
-        item_id = Path(urlsplit(href).path).stem[:24] or uid[:24]
+        # full filename stem (DAVx5 uses ~36-char uuids — never truncate, or
+        # distinct events could collapse to the same id and edits hit the wrong one)
+        item_id = Path(urlsplit(href).path).stem or uid
     dtstart = comp.get("dtstart")
     if dtstart is None:
         return None
@@ -136,6 +143,9 @@ def _event_to_appt(comp, href, etag):
         "_href": urlsplit(href).path,
         "_etag": etag,
         "_uid": uid,
+        # full original event kept so edits patch in place rather than rebuilding
+        # from lifeplanner's simpler model (preserves tz, complex RRULEs, alarms…)
+        "_raw": raw_ical,
     }
 
 
@@ -171,8 +181,11 @@ def list_appointments(cfg):
     """every appointment on the server, with _href/_etag for later edits.
     raises CalDAVError on any transport/protocol failure (caller uses cache)."""
     _, _, _, base_path = _parts(cfg)
+    # short timeout so a hung/unreachable server degrades to cache fast instead of
+    # freezing the ui — a live local/tailnet server answers in well under a second
     status, data = _request(cfg, "REPORT", base_path, body=_REPORT_BODY,
-                            extra={"Depth": "1", "Content-Type": "application/xml"})
+                            extra={"Depth": "1", "Content-Type": "application/xml"},
+                            timeout=6)
     if status not in (207, 200):
         raise CalDAVError(f"REPORT returned {status}")
     try:
@@ -191,10 +204,38 @@ def list_appointments(cfg):
         except Exception:  # never let one malformed event break the whole list
             continue
         for comp in cal.walk("VEVENT"):
-            appt = _event_to_appt(comp, href, etag.strip('"') if etag else "")
+            appt = _event_to_appt(comp, href, etag.strip('"') if etag else "", caldata)
             if appt:
                 out.append(appt)
     return out
+
+
+_CTAG_BODY = (
+    '<propfind xmlns="DAV:" xmlns:cs="http://calendarserver.org/ns/">'
+    "<prop><cs:getctag/></prop></propfind>"
+)
+
+
+def collection_ctag(cfg, timeout=5):
+    """the collection's change tag — a cheap token that flips whenever ANY event
+    changes (incl. from the phone). returns the ctag, or None if unreachable.
+    used as a light poll signal so phone-side edits show up live, without a full
+    REPORT every few seconds."""
+    _, _, _, base_path = _parts(cfg)
+    try:
+        status, data = _request(cfg, "PROPFIND", base_path, body=_CTAG_BODY,
+                                extra={"Depth": "0", "Content-Type": "application/xml"},
+                                timeout=timeout)
+    except CalDAVError:
+        return None
+    if status not in (207, 200):
+        return None
+    try:
+        root = ET.fromstring(data)
+    except (ParseError, DefusedXmlException):
+        return None
+    el = root.find(".//{http://calendarserver.org/ns/}getctag")
+    return el.text if el is not None and el.text else None
 
 
 def _resolve_href(cfg, item_id):
@@ -205,12 +246,69 @@ def _resolve_href(cfg, item_id):
     return None
 
 
-def put_appointment(cfg, appt):
-    """create or replace an appointment. lifeplanner-origin events live at
-    {id}.ics; phone-origin keep their existing href (carried on the dict)."""
+def _safe_path(base_path, path):
+    """reject a resource path that escapes the configured collection — guards
+    against a hostile/compromised server handing back a traversing href."""
+    if not path.startswith(base_path) or "/../" in path or path.endswith("/.."):
+        raise CalDAVError(f"href outside collection: {path}")
+    return path
+
+
+def _set(comp, prop, value):
+    if prop in comp:
+        del comp[prop]
+    if value:
+        comp.add(prop, value)
+
+
+def _set_dtstart(comp, when):
+    if "dtstart" in comp:
+        del comp["dtstart"]
+    if len(when) <= 10:
+        comp.add("dtstart", date.fromisoformat(when[:10]))
+    else:
+        comp.add("dtstart", datetime.fromisoformat(when))
+
+
+def _set_rrule(comp, recur):
+    if "rrule" in comp:
+        del comp["rrule"]
+    if recur:
+        rule = {"freq": recur["freq"].upper(), "interval": recur.get("interval", 1)}
+        if recur.get("until"):
+            rule["until"] = date.fromisoformat(recur["until"])
+        comp.add("rrule", rule)
+
+
+def _patch_raw(raw, appt, changed):
+    """rewrite only the fields the user actually changed into the original event,
+    leaving every other property (tz, unmodeled RRULEs, alarms…) untouched."""
+    cal = Calendar.from_ical(raw)
+    ev = next((c for c in cal.walk("VEVENT")), None)
+    if ev is None:
+        return _appt_to_ical(appt)
+    touch = (lambda k: True) if changed is None else (lambda k: k in changed)
+    if touch("title"):
+        _set(ev, "summary", appt.get("title", ""))
+    if touch("location"):
+        _set(ev, "location", appt.get("location", ""))
+    if touch("note"):
+        _set(ev, "description", appt.get("note", ""))
+    if touch("when"):
+        _set_dtstart(ev, appt["when"])
+    if touch("recur"):
+        _set_rrule(ev, appt.get("recur") or "")
+    return cal.to_ical()
+
+
+def put_appointment(cfg, appt, changed=None):
+    """create or replace an appointment. existing events are patched in place
+    (only `changed` fields touched) so server-side data lifeplanner doesn't model
+    survives; new (lifeplanner-origin) events are built fresh at {id}.ics."""
     _, _, _, base_path = _parts(cfg)
-    path = appt.get("_href") or f"{base_path}{appt['id']}.ics"
-    status, _ = _request(cfg, "PUT", path, body=_appt_to_ical(appt),
+    body = _patch_raw(appt["_raw"], appt, changed) if appt.get("_raw") else _appt_to_ical(appt)
+    path = _safe_path(base_path, appt.get("_href") or f"{base_path}{appt['id']}.ics")
+    status, _ = _request(cfg, "PUT", path, body=body,
                          extra={"Content-Type": "text/calendar; charset=utf-8"})
     if status not in (200, 201, 204):
         raise CalDAVError(f"PUT returned {status}")
@@ -218,8 +316,9 @@ def put_appointment(cfg, appt):
 
 
 def delete_appointment(cfg, item_id, href=None):
+    _, _, _, base_path = _parts(cfg)
     path = href or _resolve_href(cfg, item_id)
     if not path:
         return False
-    status, _ = _request(cfg, "DELETE", path)
+    status, _ = _request(cfg, "DELETE", _safe_path(base_path, path))
     return status in (200, 204, 404)

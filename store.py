@@ -44,6 +44,22 @@ else:
 def caldav_enabled():
     return _CALDAV is not None
 
+
+class SyncError(Exception):
+    """appointment sync backend (caldav server) was unreachable for a write —
+    callers surface this to the user instead of crashing or losing the change."""
+
+
+# whether the last appointments read came live from the server or fell back to
+# cache — surfaced to the ui so it never silently shows stale data as current.
+_appt_source = "local"
+
+
+def appointments_status():
+    if _CALDAV is None:
+        return {"backend": "local", "source": "local"}
+    return {"backend": "caldav", "source": _appt_source}
+
 ENTITIES = ("achievements", "todos", "appointments")
 # fields a PATCH is allowed to touch, per entity — anything else is dropped so a
 # stray ui/llm key can't pollute stored items. id/created are never patchable.
@@ -58,6 +74,11 @@ DEFAULT_SETTINGS = {"theme": "dark", "accent": "#ff8700", "ics_sync_path": ""}
 
 def _ensure():
     DATA.mkdir(parents=True, exist_ok=True)
+    # data holds sensitive titles (health/legal appointments) — keep it private.
+    try:
+        DATA.chmod(0o700)
+    except OSError:
+        pass
 
 
 # ---- cross-process lock -----------------------------------------------------
@@ -126,6 +147,10 @@ def _write_raw(name, value):
     p = _path(name)
     tmp = p.with_suffix(".tmp")
     tmp.write_text(json.dumps(value, indent=2, ensure_ascii=False), "utf-8")
+    try:
+        tmp.chmod(0o600)  # private — these files carry health/legal titles
+    except OSError:
+        pass
     os.replace(tmp, p)  # atomic on the same filesystem
 
 
@@ -147,13 +172,17 @@ def _cache_read():
 
 def _caldav_list():
     """live appointments from the server; on any failure fall back to the last
-    cached copy so the ui never blanks. refreshes the cache on success."""
+    cached copy so the ui never blanks. refreshes the cache on success and records
+    whether the data is live or stale (surfaced to the ui)."""
+    global _appt_source
     try:
         items = caldav_store.list_appointments(_CALDAV)
     except caldav_store.CalDAVError:
+        _appt_source = "cache"
         return _cache_read()
     items.sort(key=lambda a: a.get("when", ""))
     _cache_write(items)
+    _appt_source = "live"
     return items
 
 
@@ -162,7 +191,7 @@ def _caldav_refresh():
     try:
         _caldav_list()
         regen_ics()
-    except Exception:
+    except (caldav_store.CalDAVError, OSError):
         pass
 
 
@@ -200,7 +229,10 @@ def _normalize(name, item):
 def add_item(name, item):
     new = _normalize(name, item)
     if name == "appointments" and _CALDAV is not None:
-        caldav_store.put_appointment(_CALDAV, new)
+        try:
+            caldav_store.put_appointment(_CALDAV, new)
+        except caldav_store.CalDAVError as e:
+            raise SyncError(str(e)) from e
         _caldav_refresh()
         return new
     with FileLock():
@@ -235,16 +267,27 @@ def update_item(name, item_id, patch):
 
 
 def _caldav_update(item_id, patch):
-    """patch an appointment in place on the server (PUT to its existing resource)."""
+    """patch an appointment in place on the server. only fields that actually
+    changed are written, so editing (say) the title of a phone-made event never
+    rewrites — and so never destroys — its timezone or recurrence."""
     cur = next((a for a in _caldav_list() if a.get("id") == item_id), None)
     if cur is None:
         return None
     allowed = PATCHABLE.get("appointments", ())
+    changed = set()
     for k, v in patch.items():
-        if k in allowed:
-            cur[k] = _norm_recur(v) if k == "recur" else v
-    caldav_store.put_appointment(_CALDAV, cur)
-    _caldav_refresh()
+        if k not in allowed:
+            continue
+        nv = _norm_recur(v) if k == "recur" else (_norm_when(v) if k == "when" else v)
+        if nv != cur.get(k):
+            cur[k] = nv
+            changed.add(k)
+    if changed:
+        try:
+            caldav_store.put_appointment(_CALDAV, cur, changed=changed)
+        except caldav_store.CalDAVError as e:
+            raise SyncError(str(e)) from e
+        _caldav_refresh()
     return cur
 
 
@@ -253,7 +296,10 @@ def delete_item(name, item_id):
         cur = next((a for a in _caldav_list() if a.get("id") == item_id), None)
         if cur is None:
             return False
-        ok = caldav_store.delete_appointment(_CALDAV, item_id, cur.get("_href"))
+        try:
+            ok = caldav_store.delete_appointment(_CALDAV, item_id, cur.get("_href"))
+        except caldav_store.CalDAVError as e:
+            raise SyncError(str(e)) from e
         _caldav_refresh()
         return ok
     with FileLock():
@@ -405,22 +451,29 @@ def state():
         "todos": list_items("todos"),
         "appointments": sorted(list_items("appointments"),
                                key=lambda a: a.get("when", "")),
+        "sync": appointments_status(),
         "settings": get_settings(),
         "version": version(),
     }
 
 
 def version():
-    """max mtime (ns) across data files — cheap change token for the ui poller.
-    nanosecond resolution so two quick writes never collapse to the same token."""
+    """cheap change token for the ui poller. nanosecond mtimes so two quick writes
+    never collapse; in caldav mode it also folds in the server's collection tag so
+    a change made on the phone flips the token and the desktop refreshes live."""
+    names = ["achievements", "todos", "settings"]
+    names.append("appointments.cache" if _CALDAV is not None else "appointments")
     latest = 0
-    for name in ENTITIES + ("settings",):
-        p = _path(name)
+    for name in names:
         try:
-            latest = max(latest, p.stat().st_mtime_ns)
+            latest = max(latest, _path(name).stat().st_mtime_ns)
         except OSError:
             pass
-    return str(latest)
+    token = str(latest)
+    if _CALDAV is not None:
+        ctag = caldav_store.collection_ctag(_CALDAV, timeout=4)
+        token += "|" + (ctag or "offline")
+    return token
 
 
 def day(target):
