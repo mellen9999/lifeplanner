@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "lifeplanner": {
+      "command": "/path/to/lifeplanner/.venv/bin/python",
+      "args": ["/path/to/lifeplanner/mcp_server.py"]
+    }
+  }
+}

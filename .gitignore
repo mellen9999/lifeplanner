@@ -1,0 +1,19 @@
+# personal data — NEVER commit. your achievements/appointments/todos live here.
+data/
+*.ics
+
+# machine-specific mcp wiring (absolute paths). use .mcp.json.example as a template.
+.mcp.json
+
+# python venv + caches
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# atomic-write temp files
+*.tmp
+
+# editor / os cruft
+.DS_Store
+*.swp

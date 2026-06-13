@@ -1,0 +1,4 @@
+# the web app + data layer use the python standard library only — no deps.
+# this single dependency is ONLY needed for the optional mcp server (mcp_server.py),
+# which lets an llm read/write your planner.
+mcp>=1.0

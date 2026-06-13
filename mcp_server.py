@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+"""lifeplanner MCP server — claude's door into the same local store.
+
+reads fresh on every call (no cache), so mellen's ui edits are always visible.
+needs the official sdk:  pip install mcp
+"""
+
+import sys
+from datetime import date, timedelta
+
+try:
+    from mcp.server.fastmcp import FastMCP
+except ImportError:
+    sys.stderr.write("lifeplanner mcp needs the sdk:  pip install mcp\n")
+    raise
+
+import store
+
+mcp = FastMCP("lifeplanner")
+
+
+# ---- read -------------------------------------------------------------------
+
+@mcp.tool()
+def get_overview() -> dict:
+    """snapshot of mellen's life right now: today's items, upcoming appointments,
+    recent achievements, and open todo count. use this to check in / coach."""
+    today = date.today().isoformat()
+    horizon = (date.today() + timedelta(days=14)).isoformat()
+    todos = store.list_items("todos")
+    appts = store.list_items("appointments")
+    achs = store.list_items("achievements")
+    return {
+        "today": store.day(today),
+        "upcoming_appointments": sorted(
+            [a for a in appts if store.when_date(a.get("when")) >= today],
+            key=lambda a: a.get("when", ""))[:10],
+        "due_soon_todos": sorted(
+            [t for t in todos if not t.get("done") and t.get("due")
+             and today <= t["due"] <= horizon],
+            key=lambda t: t["due"]),
+        "open_todos": sum(1 for t in todos if not t.get("done")),
+        "recent_achievements": sorted(
+            achs, key=lambda a: (a.get("date", ""), a.get("created", "")),
+            reverse=True)[:5],
+        "total_achievements": len(achs),
+    }
+
+
+@mcp.tool()
+def get_day(date_str: str) -> dict:
+    """everything scheduled or achieved on one date (YYYY-MM-DD)."""
+    return store.day(date_str)
+
+
+@mcp.tool()
+def list_achievements(limit: int = 25) -> list:
+    """recent achievements, newest first."""
+    achs = sorted(store.list_items("achievements"),
+                  key=lambda a: (a.get("date", ""), a.get("created", "")), reverse=True)
+    return achs[:max(1, limit)]
+
+
+@mcp.tool()
+def list_todos(include_done: bool = False) -> list:
+    """todos. open only by default; pass include_done=true for the full list."""
+    todos = store.list_items("todos")
+    return todos if include_done else [t for t in todos if not t.get("done")]
+
+
+@mcp.tool()
+def list_appointments(upcoming_only: bool = True) -> list:
+    """appointments, soonest first. upcoming_only hides past ones."""
+    today = date.today().isoformat()
+    appts = sorted(store.list_items("appointments"), key=lambda a: a.get("when", ""))
+    if upcoming_only:
+        appts = [a for a in appts if store.when_date(a.get("when")) >= today]
+    return appts
+
+
+# ---- write ------------------------------------------------------------------
+
+@mcp.tool()
+def add_achievement(title: str, date: str = "", note: str = "") -> dict:
+    """log a win. date defaults to today (YYYY-MM-DD). use this often to record progress."""
+    return store.add_item("achievements", {"title": title, "date": date, "note": note})
+
+
+@mcp.tool()
+def add_todo(title: str, due: str = "") -> dict:
+    """add a todo. optional due date (YYYY-MM-DD) makes it a reminder + puts it on the calendar."""
+    return store.add_item("todos", {"title": title, "due": due})
+
+
+@mcp.tool()
+def complete_todo(todo_id: str) -> dict:
+    """mark a todo done by id."""
+    item = store.update_item("todos", todo_id, {"done": True})
+    return item or {"error": "todo not found", "id": todo_id}
+
+
+@mcp.tool()
+def add_appointment(title: str, when: str, location: str = "", note: str = "") -> dict:
+    """add an appointment. when = 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM'."""
+    return store.add_item("appointments",
+                          {"title": title, "when": when, "location": location, "note": note})
+
+
+@mcp.tool()
+def delete_item(kind: str, item_id: str) -> dict:
+    """delete an item. kind = achievements | todos | appointments."""
+    if kind not in store.ENTITIES:
+        return {"error": f"kind must be one of {store.ENTITIES}"}
+    return {"deleted": store.delete_item(kind, item_id), "id": item_id}
+
+
+if __name__ == "__main__":
+    mcp.run()
