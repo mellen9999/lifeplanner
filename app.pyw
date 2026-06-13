@@ -170,18 +170,28 @@ def already_running():
         s.close()
 
 
+# set LIFEPLANNER_NO_BROWSER=1 to never auto-open a browser tab (e.g. when the
+# server runs persistently / is restarted often — you open it from a bookmark).
+OPEN_BROWSER = os.environ.get("LIFEPLANNER_NO_BROWSER", "") not in ("1", "true", "yes")
+
+
+def _open():
+    if OPEN_BROWSER:
+        webbrowser.open(URL)
+
+
 def main():
     if already_running():
-        webbrowser.open(URL)
+        _open()
         return
     try:
         httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     except OSError:
         # lost the race — someone bound it between our check and now
-        webbrowser.open(URL)
+        _open()
         return
     store.regen_ics()  # ensure feed exists on first boot
-    threading.Timer(0.6, lambda: webbrowser.open(URL)).start()
+    threading.Timer(0.6, _open).start()
     print(f"lifeplanner running at {URL}  (ctrl-c to stop)", file=sys.stderr)
     try:
         httpd.serve_forever()
