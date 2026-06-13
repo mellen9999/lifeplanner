@@ -118,6 +118,26 @@ applies — the zero-infra default is unchanged.
 > keep the server private (a LAN or a mesh vpn like [tailscale](https://tailscale.com)); don't expose
 > caldav to the public internet.
 
+## reminders (optional)
+
+get a notification **1 day and 1 hour before** each appointment, pushed from wherever lifeplanner
+runs — no calendar app, no background-sync fragility. it uses [ntfy](https://ntfy.sh) (foss push,
+self-hostable so your data stays private).
+
+1. run an ntfy server (or use ntfy.sh) and pick a hard-to-guess topic.
+2. on a timer, run `reminders.py` with:
+   ```sh
+   LIFEPLANNER_NTFY_SERVER=http://your-ntfy:2587 \
+   LIFEPLANNER_NTFY_TOPIC=your-secret-topic \
+   LIFEPLANNER_REMINDERS=1440,60 \
+   python3 reminders.py
+   ```
+   (a systemd `.timer` every 5 min is ideal; offsets are minutes-before for timed appointments —
+   all-day ones get an evening-before + morning-of nudge.)
+3. install the ntfy app and subscribe to the same server + topic.
+
+it's stateful (each reminder fires once) and does nothing without the env vars, so it's fully optional.
+
 ## configuration
 
 all optional, via environment variables:
