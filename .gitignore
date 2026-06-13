@@ -17,3 +17,6 @@ __pycache__/
 # editor / os cruft
 .DS_Store
 *.swp
+
+# local caldav credentials — never commit
+.caldav.json

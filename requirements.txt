@@ -1,4 +1,11 @@
 # the web app + data layer use the python standard library only — no deps.
-# this single dependency is ONLY needed for the optional mcp server (mcp_server.py),
-# which lets an llm read/write your planner.
+# everything below is OPTIONAL, for features you may not use.
+
+# mcp server (mcp_server.py) — lets an llm read/write your planner.
 mcp>=1.0
+
+# caldav sync (caldav_store.py) — only if you back appointments with a caldav
+# server (e.g. radicale) for two-way phone sync. without a .caldav.json config,
+# appointments stay local json and these aren't needed.
+icalendar>=6.0
+defusedxml>=0.7

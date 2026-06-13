@@ -13,6 +13,7 @@ from pathlib import Path
 
 # isolate the data dir BEFORE importing store (store reads the env at import time)
 os.environ["LIFEPLANNER_DATA"] = tempfile.mkdtemp(prefix="lp-test-")
+os.environ["LIFEPLANNER_CALDAV"] = "0"  # tests cover the local backend, never the server
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import store  # noqa: E402

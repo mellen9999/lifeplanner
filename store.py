@@ -21,6 +21,28 @@ BASE = Path(__file__).resolve().parent
 DATA = Path(os.environ.get("LIFEPLANNER_DATA") or (BASE / "data")).expanduser()
 LOCK = DATA / ".lock"
 ICS = DATA / "lifeplanner.ics"
+# appointments cache — only used in caldav mode, so the desktop still shows the
+# last-known appointments when the server (mele) is briefly unreachable.
+APPT_CACHE = DATA / "appointments.cache.json"
+
+# optional caldav backend for appointments. when .caldav.json is present, the
+# appointments entity is backed by a shared caldav server (radicale, two-way with
+# the phone); otherwise everything stays local json. import is soft so the app
+# still runs if the optional deps (icalendar/defusedxml) aren't installed.
+if os.environ.get("LIFEPLANNER_CALDAV", "").lower() in ("0", "off", "false", "no"):
+    caldav_store = None          # explicitly disabled (tests, local-only mode)
+    _CALDAV = None
+else:
+    try:
+        import caldav_store
+        _CALDAV = caldav_store.config()
+    except Exception:
+        caldav_store = None
+        _CALDAV = None
+
+
+def caldav_enabled():
+    return _CALDAV is not None
 
 ENTITIES = ("achievements", "todos", "appointments")
 # fields a PATCH is allowed to touch, per entity — anything else is dropped so a
@@ -109,9 +131,46 @@ def _write_raw(name, value):
 
 # ---- entities ---------------------------------------------------------------
 
+# ---- caldav-backed appointments ---------------------------------------------
+
+def _cache_write(items):
+    try:
+        _write_raw("appointments.cache", items)
+    except OSError:
+        pass
+
+
+def _cache_read():
+    items = _read_raw("appointments.cache", [])
+    return items if isinstance(items, list) else []
+
+
+def _caldav_list():
+    """live appointments from the server; on any failure fall back to the last
+    cached copy so the ui never blanks. refreshes the cache on success."""
+    try:
+        items = caldav_store.list_appointments(_CALDAV)
+    except caldav_store.CalDAVError:
+        return _cache_read()
+    items.sort(key=lambda a: a.get("when", ""))
+    _cache_write(items)
+    return items
+
+
+def _caldav_refresh():
+    """re-pull after a mutation so cache + .ics reflect server truth."""
+    try:
+        _caldav_list()
+        regen_ics()
+    except Exception:
+        pass
+
+
 def list_items(name):
     if name not in ENTITIES:
         raise ValueError(f"unknown entity: {name}")
+    if name == "appointments" and _CALDAV is not None:
+        return _caldav_list()
     items = _read_raw(name, [])
     return items if isinstance(items, list) else []
 
@@ -140,6 +199,10 @@ def _normalize(name, item):
 
 def add_item(name, item):
     new = _normalize(name, item)
+    if name == "appointments" and _CALDAV is not None:
+        caldav_store.put_appointment(_CALDAV, new)
+        _caldav_refresh()
+        return new
     with FileLock():
         items = list_items(name)
         items.append(new)
@@ -149,6 +212,8 @@ def add_item(name, item):
 
 
 def update_item(name, item_id, patch):
+    if name == "appointments" and _CALDAV is not None:
+        return _caldav_update(item_id, patch)
     with FileLock():
         items = list_items(name)
         found = None
@@ -169,7 +234,28 @@ def update_item(name, item_id, patch):
     return found
 
 
+def _caldav_update(item_id, patch):
+    """patch an appointment in place on the server (PUT to its existing resource)."""
+    cur = next((a for a in _caldav_list() if a.get("id") == item_id), None)
+    if cur is None:
+        return None
+    allowed = PATCHABLE.get("appointments", ())
+    for k, v in patch.items():
+        if k in allowed:
+            cur[k] = _norm_recur(v) if k == "recur" else v
+    caldav_store.put_appointment(_CALDAV, cur)
+    _caldav_refresh()
+    return cur
+
+
 def delete_item(name, item_id):
+    if name == "appointments" and _CALDAV is not None:
+        cur = next((a for a in _caldav_list() if a.get("id") == item_id), None)
+        if cur is None:
+            return False
+        ok = caldav_store.delete_appointment(_CALDAV, item_id, cur.get("_href"))
+        _caldav_refresh()
+        return ok
     with FileLock():
         items = list_items(name)
         kept = [it for it in items if it.get("id") != item_id]
