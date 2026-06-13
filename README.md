@@ -23,15 +23,31 @@ launching again just focuses the running window (only one server runs at a time)
 
 no build step, no `npm`, no dependencies for the app itself.
 
+## how to use it
+
+five sections (number keys switch them):
+
+1. **today** — your daily glance. appointments today, todos due/overdue, today's wins with a
+   one-field win logger, the next 7 days, and a streak ribbon. open this first each day.
+2. **calendar** — month grid; click a day to see/add what's on it. colored marks: green = a win,
+   blue = an appointment, yellow = a due todo.
+3. **appointments** — things at a time. add with a date (+ optional time) and place.
+4. **achievements** — your wins log, with a contribution heatmap + streak counters. log small wins
+   often; watching the streak grow is the point.
+5. **todos** — things to do; give one a due date and it becomes a reminder on the calendar + phone.
+
+every item can be edited in place (`e` or double-click) or deleted (`×` / `d d`). nothing needs
+saving — it's written to disk the moment you add it.
+
 ## keys
 
 | keys | action | | keys | action |
 |---|---|---|---|---|
-| `1` `2` `3` `4` | switch section | | `h` / `l` | prev / next month |
-| `n` | new item | | `enter` | open selected day |
-| `j` / `k` | move selection | | `t` | toggle light / dark |
-| `x` | toggle todo done | | `r` | refresh |
-| `d` `d` | delete selected | | `?` | help |
+| `1` … `5` | switch section | | `h` / `l` | prev / next month |
+| `n` | new item | | `e` / dbl-click | edit selected |
+| `j` / `k` | move selection | | `enter` | save edit / open day |
+| `x` | toggle todo done | | `t` | toggle light / dark |
+| `d` `d` | delete selected | | `r` · `?` | refresh · help |
 
 theme and accent are saved with your data.
 
@@ -45,8 +61,10 @@ it creates `.venv`, installs the mcp sdk, and prints a ready `claude mcp add …
 script prints the `\.venv\Scripts\python.exe` path). run it, restart claude, and check `/mcp`. the assistant
 then has these tools, all writing to the same local files the web app reads:
 
-`get_overview` · `get_day` · `list_achievements` · `add_achievement` · `list_todos` · `add_todo` ·
-`complete_todo` · `list_appointments` · `add_appointment` · `delete_item`
+read: `get_overview` · `get_day` · `get_week` · `list_achievements` · `list_todos` ·
+`list_appointments`
+write: `add_achievement` · `add_todo` · `complete_todo` · `add_appointment` ·
+`update_achievement` · `update_todo` · `update_appointment` · `delete_item`
 
 writes from the assistant appear in your open ui within a few seconds; your edits are visible to it
 immediately. (works with any mcp client — claude desktop, claude code, etc.)

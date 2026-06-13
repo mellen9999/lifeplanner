@@ -107,6 +107,47 @@ def add_appointment(title: str, when: str, location: str = "", note: str = "") -
 
 
 @mcp.tool()
+def update_appointment(item_id: str, title: str = "", when: str = "",
+                       location: str = "", note: str = "") -> dict:
+    """edit/reschedule an appointment by id. only non-empty fields are changed.
+    when = 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM'."""
+    patch = {k: v for k, v in
+             {"title": title, "when": when, "location": location, "note": note}.items() if v}
+    return store.update_item("appointments", item_id, patch) or {"error": "not found", "id": item_id}
+
+
+@mcp.tool()
+def update_todo(item_id: str, title: str = "", due: str = "") -> dict:
+    """edit a todo by id (retitle or change/clear its due date). pass due='none' to clear it."""
+    patch = {}
+    if title:
+        patch["title"] = title
+    if due:
+        patch["due"] = "" if due.lower() == "none" else due
+    return store.update_item("todos", item_id, patch) or {"error": "not found", "id": item_id}
+
+
+@mcp.tool()
+def update_achievement(item_id: str, title: str = "", date: str = "", note: str = "") -> dict:
+    """edit a logged achievement by id. only non-empty fields are changed."""
+    patch = {k: v for k, v in {"title": title, "date": date, "note": note}.items() if v}
+    return store.update_item("achievements", item_id, patch) or {"error": "not found", "id": item_id}
+
+
+@mcp.tool()
+def get_week() -> dict:
+    """everything in the next 7 days, grouped by date — appointments, due todos, wins."""
+    today = date.today()
+    out = {}
+    for i in range(7):
+        d = (today + timedelta(days=i)).isoformat()
+        day = store.day(d)
+        if day["appointments"] or day["todos"] or day["achievements"]:
+            out[d] = day
+    return {"from": today.isoformat(), "days": out}
+
+
+@mcp.tool()
 def delete_item(kind: str, item_id: str) -> dict:
     """delete an item. kind = achievements | todos | appointments."""
     if kind not in store.ENTITIES:

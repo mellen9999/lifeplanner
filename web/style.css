@@ -157,4 +157,51 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .overlay td { padding: 3px 18px 3px 0; }
 .overlay td:first-child { color: var(--accent); white-space: nowrap; }
 .muted { color: var(--muted); }
-.muted.small { font-size: 12px; margin-top: 10px; }
+.muted.small { font-size: 12px; margin-top: 6px; }
+
+/* ---- today / agenda ---- */
+.agenda { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-items: start; }
+@media (max-width: 720px) { .agenda { grid-template-columns: 1fr; } }
+.card2 { border: 1px solid var(--line); padding: 10px 12px; }
+.card2 h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+  margin-bottom: 8px; font-weight: 600; }
+.card2 .li { display: flex; gap: 9px; align-items: baseline; padding: 4px 0;
+  border-bottom: 1px solid var(--line); }
+.card2 .li:last-of-type { border-bottom: none; }
+.card2 .li.overdue { color: var(--todo); }
+.card2 .li .sub { color: var(--muted); font-size: 12px; }
+.card2 .li.overdue .sub { color: var(--todo); }
+.card2 .tick { width: 14px; height: 14px; line-height: 12px; }
+.quick { margin-top: 9px; display: flex; gap: 6px; }
+.quick input { font: inherit; background: var(--field); color: var(--fg);
+  border: 1px solid var(--line); padding: 5px 7px; flex: 1; }
+.quick button { font: inherit; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--fg); padding: 5px 12px; cursor: pointer; }
+.quick button:hover { background: var(--inv-bg); color: var(--inv-fg); }
+
+/* streak ribbon */
+.ribbon { display: flex; gap: 10px; margin: 12px 0; flex-wrap: wrap; }
+.stat { border: 1px solid var(--line); padding: 8px 14px; min-width: 84px; }
+.stat-n { font-size: 22px; font-variant-numeric: tabular-nums; color: var(--accent); line-height: 1; }
+.stat-l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-top: 4px; }
+
+/* achievement heatmap — square, green scale (semantic for wins) */
+.heatmap { overflow-x: auto; padding-bottom: 4px; margin-bottom: 14px; }
+.hm-grid { display: flex; gap: 3px; }
+.hm-col { display: flex; flex-direction: column; gap: 3px; }
+.hm { width: 12px; height: 12px; border: 1px solid var(--line); }
+.hm.lvl1 { background: #1a7a3f; border-color: #1a7a3f; }
+.hm.lvl2 { background: #2ecc71; border-color: #2ecc71; }
+.hm.lvl3 { background: #3bff7a; border-color: #3bff7a; }
+.hm.future { opacity: .2; }
+
+/* ---- inline edit ---- */
+.rowedit { margin-left: auto; color: var(--muted); cursor: pointer; padding: 0 6px; font-size: 12px; }
+.row:hover .rowedit:hover, .row.sel .rowedit:hover { color: var(--inv-bg); background: var(--inv-fg); }
+.row.editing { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: var(--bg); color: var(--fg); }
+.row.editing input { font: inherit; background: var(--field); color: var(--fg);
+  border: 1px solid var(--line); padding: 5px 7px; }
+.row.editing input:focus { outline: 2px solid var(--accent); }
+.row.editing input.title { flex: 1 1 180px; }
+.row.editing button.rowedit { margin-left: 0; border: 1px solid var(--fg); padding: 5px 12px; color: var(--fg); background: var(--bg); }
+.row.editing button.rowedit:hover { background: var(--inv-bg); color: var(--inv-fg); }

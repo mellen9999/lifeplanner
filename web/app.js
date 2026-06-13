@@ -8,10 +8,12 @@ const ACCENTS = [
 const DOW = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const MONTHS = ["january", "february", "march", "april", "may", "june",
   "july", "august", "september", "october", "november", "december"];
+const VIEWS = ["today", "calendar", "appointments", "achievements", "todos"];
 
 let state = { achievements: [], todos: [], appointments: [], settings: {}, version: "" };
-let view = "calendar";
+let view = "today";
 let sel = -1;                 // selected list index in current section
+let editing = null;           // id of the item being edited inline
 let calCursor = startOfMonth(new Date());
 let selDay = iso(new Date()); // selected calendar day
 let pendingDelete = false;    // first 'd' of 'dd'
@@ -22,6 +24,7 @@ function iso(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.ge
 function startOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
 function todayIso() { return iso(new Date()); }
 function pad(n) { return String(n).padStart(2, "0"); }
+function addDays(ds, n) { const d = new Date(ds + "T00:00"); d.setDate(d.getDate() + n); return iso(d); }
 function el(tag, cls, txt) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -37,6 +40,7 @@ function fmtWhen(when) {
   const base = iso(d);
   return when.length <= 10 ? base : `${base} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+function timeOf(when) { return when && when.length > 10 ? fmtWhen(when).slice(11) : ""; }
 
 // ---- api --------------------------------------------------------------------
 
@@ -100,6 +104,7 @@ function renderAccents(active) {
 function setView(v) {
   view = v;
   sel = -1;
+  editing = null;
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.view === v));
   document.querySelectorAll(".view").forEach(s => s.classList.toggle("active", s.id === v));
   render();
@@ -107,14 +112,20 @@ function setView(v) {
 
 function currentList() {
   if (view === "achievements") return state.achievements;
-  if (view === "todos") return state.todos;
+  if (view === "todos") return sortedTodos();
   if (view === "appointments") return state.appointments;
   return [];
+}
+
+function sortedTodos() {
+  return [...state.todos].sort((a, b) =>
+    (a.done - b.done) || ((a.due || "9999") > (b.due || "9999") ? 1 : -1));
 }
 
 // ---- render -----------------------------------------------------------------
 
 function render() {
+  renderToday();
   renderCalendar();
   renderAppointments();
   renderAchievements();
@@ -155,7 +166,8 @@ function buildBody(title, sub) {
   return b;
 }
 
-function listRow(item, parts, opts = {}) {
+function listRow(item, entity, parts, opts = {}) {
+  if (item.id === editing) return editRow(item, entity);
   const row = el("div", "row" + (opts.done ? " done" : ""));
   row.dataset.id = item.id;
   if (opts.tick) {
@@ -164,11 +176,77 @@ function listRow(item, parts, opts = {}) {
     row.appendChild(t);
   }
   parts.forEach(p => row.appendChild(p));
+  const editBtn = el("span", "rowedit", "edit");
+  editBtn.title = "edit (e)";
+  editBtn.onclick = (e) => { e.stopPropagation(); editing = item.id; render(); focusEdit(entity); };
+  row.appendChild(editBtn);
   const del = el("span", "del", "×");
   del.title = "delete";
-  del.onclick = (e) => { e.stopPropagation(); remove(opts.entity, item.id); };
+  del.onclick = (e) => { e.stopPropagation(); remove(entity, item.id); };
   row.appendChild(del);
+  row.ondblclick = () => { editing = item.id; render(); focusEdit(entity); };
   return row;
+}
+
+// inline edit form, pre-filled, mirroring the entity's fields
+function editRow(item, entity) {
+  const form = el("form", "row editing");
+  form.dataset.id = item.id;
+  const fields = editFields(entity, item);
+  const inputs = {};
+  fields.forEach(f => {
+    const i = el("input");
+    i.type = f.type || "text";
+    if (f.cls) i.className = f.cls;
+    i.placeholder = f.ph || "";
+    i.value = f.value || "";
+    inputs[f.name] = i;
+    form.appendChild(i);
+  });
+  const save = el("button", "rowedit", "save"); save.type = "submit";
+  const cancel = el("span", "del", "esc");
+  cancel.onclick = () => { editing = null; render(); };
+  form.append(save, cancel);
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const v = {}; for (const k in inputs) v[k] = inputs[k].value.trim();
+    if (!v.title) return;
+    editing = null;
+    patch(entity, item.id, buildPatch(entity, v));
+  };
+  form._first = inputs.title;
+  return form;
+}
+
+function editFields(entity, item) {
+  if (entity === "appointments") return [
+    { name: "title", cls: "title", value: item.title },
+    { name: "date", type: "date", value: (item.when || "").slice(0, 10) },
+    { name: "time", type: "time", value: timeOf(item.when) },
+    { name: "location", ph: "where", value: item.location },
+  ];
+  if (entity === "achievements") return [
+    { name: "title", cls: "title", value: item.title },
+    { name: "date", type: "date", value: item.date },
+    { name: "note", ph: "note", value: item.note },
+  ];
+  return [ // todos
+    { name: "title", cls: "title", value: item.title },
+    { name: "due", type: "date", value: item.due },
+  ];
+}
+
+function buildPatch(entity, v) {
+  if (entity === "appointments")
+    return { title: v.title, when: v.time ? `${v.date} ${v.time}` : v.date, location: v.location };
+  if (entity === "achievements")
+    return { title: v.title, date: v.date, note: v.note };
+  return { title: v.title, due: v.due };
+}
+
+function focusEdit(entity) {
+  const f = document.querySelector(`#${entity} .row.editing .title`);
+  if (f) { f.focus(); f.select(); }
 }
 
 function mountList(container, items, builder, emptyMsg) {
@@ -177,14 +255,161 @@ function mountList(container, items, builder, emptyMsg) {
   const list = el("div", "list");
   items.forEach((it, i) => {
     const row = builder(it, i);
-    if (i === sel) row.classList.add("sel");
-    row.onclick = () => { sel = i; render(); };
+    if (i === sel && it.id !== editing) row.classList.add("sel");
+    if (it.id !== editing) row.onclick = () => { sel = i; render(); };
     list.appendChild(row);
   });
   container.appendChild(list);
 }
 
-// appointments
+// ---- today / agenda ---------------------------------------------------------
+
+function renderToday() {
+  const root = document.getElementById("today");
+  clear(root);
+  const t = todayIso();
+  const now = new Date();
+  const head = el("h2", "section-h", `today — ${MONTHS[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`);
+  root.appendChild(head);
+
+  const grid = el("div", "agenda");
+
+  // appointments today
+  const appts = state.appointments
+    .filter(a => (a.when || "").slice(0, 10) === t)
+    .sort((a, b) => (a.when > b.when ? 1 : -1));
+  grid.appendChild(agendaCard("appointments today", appts.length
+    ? appts.map(a => agendaLine("appt", (timeOf(a.when) ? timeOf(a.when) + "  " : "") + a.title, a.location))
+    : [el("div", "muted small", "nothing scheduled")]));
+
+  // todos: overdue + due today
+  const overdue = state.todos.filter(x => !x.done && x.due && x.due < t)
+    .sort((a, b) => (a.due > b.due ? 1 : -1));
+  const dueToday = state.todos.filter(x => !x.done && x.due === t);
+  const todoLines = [];
+  overdue.forEach(x => todoLines.push(agendaTodo(x, `overdue · ${x.due}`)));
+  dueToday.forEach(x => todoLines.push(agendaTodo(x, "due today")));
+  grid.appendChild(agendaCard("todos due", todoLines.length ? todoLines
+    : [el("div", "muted small", "nothing due — nice")]));
+
+  // wins today + quick logger (the daily habit)
+  const wins = state.achievements.filter(a => a.date === t);
+  const winCard = el("div", "card2");
+  winCard.appendChild(el("h3", null, "wins today"));
+  wins.forEach(w => winCard.appendChild(agendaLine("ach", w.title, w.note)));
+  if (!wins.length) winCard.appendChild(el("div", "muted small", "log one below — even a small one counts"));
+  const q = el("form", "quick");
+  const inp = el("input"); inp.placeholder = "+ log a win"; inp.id = "today-win";
+  const b = el("button", null, "log"); b.type = "submit";
+  q.append(inp, b);
+  q.onsubmit = (e) => { e.preventDefault(); const v = inp.value.trim(); if (v) { inp.value = ""; add("achievements", { title: v }); } };
+  winCard.appendChild(q);
+  grid.appendChild(winCard);
+
+  // next 7 days peek
+  const soon = state.appointments
+    .filter(a => { const d = (a.when || "").slice(0, 10); return d > t && d <= addDays(t, 7); })
+    .sort((a, b) => (a.when > b.when ? 1 : -1));
+  grid.appendChild(agendaCard("next 7 days", soon.length
+    ? soon.map(a => agendaLine("appt", `${(a.when || "").slice(5, 10)}  ${a.title}`, ""))
+    : [el("div", "muted small", "clear")]));
+
+  root.appendChild(grid);
+
+  // streak ribbon
+  root.appendChild(streakRibbon());
+}
+
+function agendaCard(title, children) {
+  const c = el("div", "card2");
+  c.appendChild(el("h3", null, title));
+  children.forEach(ch => c.appendChild(ch));
+  return c;
+}
+function agendaLine(kind, text, sub) {
+  const li = el("div", "li");
+  li.appendChild(el("span", "mk " + kind));
+  const body = el("div");
+  body.appendChild(el("span", null, text));
+  if (sub) body.appendChild(el("div", "sub", sub));
+  li.appendChild(body);
+  return li;
+}
+function agendaTodo(x, label) {
+  const li = el("div", "li" + (label.startsWith("overdue") ? " overdue" : ""));
+  const t = el("span", "tick", "");
+  t.onclick = () => patch("todos", x.id, { done: true });
+  li.appendChild(t);
+  const body = el("div");
+  body.appendChild(el("span", null, x.title));
+  body.appendChild(el("div", "sub", label));
+  li.appendChild(body);
+  return li;
+}
+
+// ---- achievements heatmap + streaks ----------------------------------------
+
+function winCounts() {
+  const m = {};
+  state.achievements.forEach(a => { if (a.date) m[a.date] = (m[a.date] || 0) + 1; });
+  return m;
+}
+
+function streakRibbon() {
+  const counts = winCounts();
+  const ribbon = el("div", "ribbon");
+  const days = Object.keys(counts).sort();
+  // current streak: count back from today (or yesterday if today not logged yet)
+  let cur = 0;
+  let cursor = counts[todayIso()] ? todayIso() : addDays(todayIso(), -1);
+  while (counts[cursor]) { cur++; cursor = addDays(cursor, -1); }
+  // longest run of consecutive days
+  let longest = 0, run = 0, prev = null;
+  days.forEach(d => { run = (prev && addDays(prev, 1) === d) ? run + 1 : 1; longest = Math.max(longest, run); prev = d; });
+  const t = todayIso();
+  const week = state.achievements.filter(a => a.date > addDays(t, -7) && a.date <= t).length;
+  ribbon.append(
+    stat(cur, "day streak"),
+    stat(longest, "longest"),
+    stat(week, "this week"),
+    stat(state.achievements.length, "total wins"),
+  );
+  return ribbon;
+}
+function stat(n, label) {
+  const s = el("div", "stat");
+  s.appendChild(el("div", "stat-n", String(n)));
+  s.appendChild(el("div", "stat-l", label));
+  return s;
+}
+
+function renderHeatmap() {
+  const counts = winCounts();
+  const WEEKS = 26;
+  const today = new Date();
+  const start = new Date(today);
+  start.setDate(start.getDate() - ((today.getDay() + 6) % 7) - (WEEKS - 1) * 7); // monday, 26 wks back
+  const grid = el("div", "hm-grid");
+  for (let w = 0; w < WEEKS; w++) {
+    const col = el("div", "hm-col");
+    for (let dN = 0; dN < 7; dN++) {
+      const dt = new Date(start); dt.setDate(start.getDate() + w * 7 + dN);
+      const ds = iso(dt);
+      const c = counts[ds] || 0;
+      const cell = el("div", "hm lvl" + Math.min(3, c));
+      if (dt > today) cell.classList.add("future");
+      cell.title = `${ds}: ${c} win${c === 1 ? "" : "s"}`;
+      col.appendChild(cell);
+    }
+    grid.appendChild(col);
+  }
+  const wrap = el("div", "heatmap");
+  wrap.appendChild(grid);
+  return wrap;
+}
+
+// ---- appointments / achievements / todos -----------------------------------
+
 function renderAppointments() {
   const root = document.getElementById("appointments");
   clear(root);
@@ -196,39 +421,36 @@ function renderAppointments() {
     { name: "when", type: "date", value: selDay },
     { name: "time", type: "time" },
     { name: "location", ph: "where (optional)" },
-  ], d => {
-    const when = d.time ? `${d.when} ${d.time}` : d.when;
-    add("appointments", { title: d.title, when, location: d.location });
-  }));
+  ], d => add("appointments", { title: d.title, when: d.time ? `${d.when} ${d.time}` : d.when, location: d.location })));
   const body = el("div");
-  mountList(body, state.appointments, (a) => listRow(a, [
+  mountList(body, state.appointments, (a) => listRow(a, "appointments", [
     el("span", "when", fmtWhen(a.when)),
     buildBody(a.title, a.location),
-  ], { entity: "appointments" }), "no appointments. press n to add one.");
+  ]), "no appointments. press n to add one.");
   root.appendChild(body);
 }
 
-// achievements
 function renderAchievements() {
   const root = document.getElementById("achievements");
   clear(root);
   const h = el("h2", "section-h", "achievements");
   h.appendChild(el("span", "count", `${state.achievements.length} logged`));
   root.appendChild(h);
+  root.appendChild(streakRibbon());
+  root.appendChild(renderHeatmap());
   root.appendChild(addRow([
     { name: "title", ph: "what you did", cls: "title" },
     { name: "date", type: "date", value: todayIso() },
     { name: "note", ph: "note (optional)" },
   ], d => add("achievements", d)));
   const body = el("div");
-  mountList(body, state.achievements, (a) => listRow(a, [
+  mountList(body, state.achievements, (a) => listRow(a, "achievements", [
     el("span", "when", a.date),
     buildBody(a.title, a.note),
-  ], { entity: "achievements" }), "no wins logged yet. log your first one — press n.");
+  ]), "no wins logged yet. log your first one — press n.");
   root.appendChild(body);
 }
 
-// todos
 function renderTodos() {
   const root = document.getElementById("todos");
   clear(root);
@@ -241,16 +463,15 @@ function renderTodos() {
     { name: "due", type: "date" },
   ], d => add("todos", d)));
   const body = el("div");
-  const sorted = [...state.todos].sort((a, b) =>
-    (a.done - b.done) || ((a.due || "9999") > (b.due || "9999") ? 1 : -1));
-  mountList(body, sorted, (t) => listRow(t, [
+  mountList(body, sortedTodos(), (t) => listRow(t, "todos", [
     el("span", "when", t.due ? t.due : "—"),
     buildBody(t.title, t.due && !t.done && t.due < todayIso() ? "overdue" : ""),
-  ], { entity: "todos", tick: true, done: t.done }), "nothing to do. press n to add.");
+  ], { tick: true, done: t.done }), "nothing to do. press n to add.");
   root.appendChild(body);
 }
 
-// calendar
+// ---- calendar ---------------------------------------------------------------
+
 function renderCalendar() {
   const root = document.getElementById("calendar");
   clear(root);
@@ -311,7 +532,7 @@ function renderDayPanel() {
   panel.appendChild(el("h3", null, selDay));
   const items = [];
   state.appointments.filter(a => (a.when || "").slice(0, 10) === selDay)
-    .forEach(a => items.push(["appt", `${fmtWhen(a.when).slice(11) || ""} ${a.title}`.trim()]));
+    .forEach(a => items.push(["appt", `${timeOf(a.when) ? timeOf(a.when) + " " : ""}${a.title}`.trim()]));
   state.todos.filter(t => t.due === selDay)
     .forEach(t => items.push(["todo", (t.done ? "✓ " : "") + t.title]));
   state.achievements.filter(a => a.date === selDay)
@@ -352,7 +573,7 @@ function shiftMonth(n) {
 
 function focusAdd() {
   const v = document.getElementById(view);
-  const form = v.querySelector(".add");
+  const form = v && v.querySelector(".add");
   if (form && form._first) {
     form._first.focus();
     form._first.classList.add("flash");
@@ -369,23 +590,35 @@ function moveSel(d) {
   if (elRow) elRow.scrollIntoView({ block: "nearest" });
 }
 
+function editSel() {
+  if (!["appointments", "achievements", "todos"].includes(view)) return;
+  const list = currentList();
+  if (sel < 0 || sel >= list.length) return;
+  editing = list[sel].id;
+  render();
+  focusEdit(view);
+}
+
 document.addEventListener("keydown", (e) => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
   const help = document.getElementById("help");
 
   if (e.key === "Escape") {
     if (!help.hidden) { help.hidden = true; return; }
+    if (editing) { editing = null; render(); return; }
     if (typing) { document.activeElement.blur(); return; }
   }
   if (typing) return;
   if (!help.hidden && e.key !== "?") return;
 
   switch (e.key) {
-    case "1": setView("calendar"); break;
-    case "2": setView("appointments"); break;
-    case "3": setView("achievements"); break;
-    case "4": setView("todos"); break;
+    case "1": setView("today"); break;
+    case "2": setView("calendar"); break;
+    case "3": setView("appointments"); break;
+    case "4": setView("achievements"); break;
+    case "5": setView("todos"); break;
     case "n": e.preventDefault(); focusAdd(); break;
+    case "e": e.preventDefault(); editSel(); break;
     case "t": toggleTheme(); break;
     case "r": refresh(); break;
     case "?": help.hidden = !help.hidden; break;
@@ -420,7 +653,7 @@ function toggleSelTodo() {
 }
 
 function deleteSel() {
-  if (view === "calendar") return;
+  if (!["appointments", "achievements", "todos"].includes(view)) return;
   const row = document.querySelector(`#${view} .row.sel`);
   if (row) remove(view, row.dataset.id);
 }
@@ -444,7 +677,7 @@ function wireBar() {
 
 let polling = false;
 async function poll() {
-  if (polling || document.visibilityState !== "visible") return;
+  if (polling || editing || document.visibilityState !== "visible") return;
   polling = true;
   try {
     const { version } = await api("GET", "/api/version");
@@ -453,7 +686,7 @@ async function poll() {
 }
 
 wireBar();
-setView("calendar");
+setView("today");
 refresh();
 setInterval(poll, 4000);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") poll(); });

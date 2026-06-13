@@ -9,10 +9,11 @@
 <body>
   <header id="bar">
     <nav id="nav">
-      <button class="tab" data-view="calendar"><span class="k">1</span>calendar</button>
-      <button class="tab" data-view="appointments"><span class="k">2</span>appointments</button>
-      <button class="tab" data-view="achievements"><span class="k">3</span>achievements</button>
-      <button class="tab" data-view="todos"><span class="k">4</span>todos</button>
+      <button class="tab" data-view="today"><span class="k">1</span>today</button>
+      <button class="tab" data-view="calendar"><span class="k">2</span>calendar</button>
+      <button class="tab" data-view="appointments"><span class="k">3</span>appointments</button>
+      <button class="tab" data-view="achievements"><span class="k">4</span>achievements</button>
+      <button class="tab" data-view="todos"><span class="k">5</span>todos</button>
     </nav>
     <div id="tools">
       <div id="accents" title="accent"></div>
@@ -22,6 +23,7 @@
   </header>
 
   <main id="main">
+    <section id="today" class="view"></section>
     <section id="calendar" class="view"></section>
     <section id="appointments" class="view"></section>
     <section id="achievements" class="view"></section>
@@ -32,19 +34,20 @@
     <div class="card">
       <h2>keys</h2>
       <table>
-        <tr><td>1 2 3 4</td><td>switch section</td></tr>
+        <tr><td>1 … 5</td><td>today · calendar · appointments · achievements · todos</td></tr>
         <tr><td>n</td><td>new item (focus add)</td></tr>
         <tr><td>j / k</td><td>move selection</td></tr>
+        <tr><td>e / dbl-click</td><td>edit selected item</td></tr>
         <tr><td>x</td><td>toggle todo done</td></tr>
         <tr><td>d d</td><td>delete selected</td></tr>
         <tr><td>h / l</td><td>prev / next month (calendar)</td></tr>
-        <tr><td>enter</td><td>open selected day</td></tr>
+        <tr><td>enter</td><td>save edit / open selected day</td></tr>
         <tr><td>t</td><td>toggle light / dark</td></tr>
         <tr><td>r</td><td>refresh</td></tr>
-        <tr><td>esc</td><td>close / blur</td></tr>
+        <tr><td>esc</td><td>cancel edit / close / blur</td></tr>
         <tr><td>?</td><td>this help</td></tr>
       </table>
-      <p class="muted">closes on esc or ?</p>
+      <p class="muted small">closes on esc or ?</p>
     </div>
   </div>
 
