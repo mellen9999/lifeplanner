@@ -9,6 +9,13 @@ const DOW = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const MONTHS = ["january", "february", "march", "april", "may", "june",
   "july", "august", "september", "october", "november", "december"];
 const VIEWS = ["today", "calendar", "appointments", "achievements", "todos"];
+const REPEAT_OPTIONS = [
+  { value: "", label: "once" },
+  { value: "daily", label: "daily" },
+  { value: "weekly", label: "weekly" },
+  { value: "weekly:2", label: "every other week" },
+  { value: "monthly", label: "monthly" },
+];
 
 let state = { achievements: [], todos: [], appointments: [], settings: {}, version: "" };
 let view = "today";
@@ -41,6 +48,60 @@ function fmtWhen(when) {
   return when.length <= 10 ? base : `${base} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 function timeOf(when) { return when && when.length > 10 ? fmtWhen(when).slice(11) : ""; }
+
+// ---- recurrence (mirrors store.py) -----------------------------------------
+
+// concrete when-strings an appointment falls on within [from, to] (inclusive).
+// mirrors store.occurrences_in, incl. RRULE monthly skip semantics.
+function apptOccurrences(a, fromIso, toIso) {
+  const when = a.when || "";
+  if (!when) return [];
+  const anchor = when.slice(0, 10), timePart = when.slice(10);
+  const r = a.recur;
+  if (!r || !r.freq) return (anchor >= fromIso && anchor <= toIso) ? [when] : [];
+  const iv = Math.max(1, r.interval || 1), until = r.until || "";
+  const limit = (until && until < toIso) ? until : toIso;
+  const out = [];
+  if (r.freq === "monthly") {
+    const ay = +anchor.slice(0, 4), am = +anchor.slice(5, 7), ad = +anchor.slice(8, 10);
+    for (let k = 0; k < 10000; k++) {
+      const tot = (am - 1) + iv * k;
+      const y = ay + Math.floor(tot / 12), m = (tot % 12) + 1;
+      if (`${y}-${pad(m)}-01` > limit) break;
+      if (ad > new Date(y, m, 0).getDate()) continue;  // month lacks this day
+      const ds = `${y}-${pad(m)}-${pad(ad)}`;
+      if (ds >= fromIso && ds <= limit) out.push(ds + timePart);
+    }
+  } else {
+    const step = r.freq === "daily" ? iv : 7 * iv;
+    let d = anchor, guard = 0;
+    while (d <= limit && guard < 100000) {
+      guard++;
+      if (d >= fromIso) out.push(d + timePart);
+      d = addDays(d, step);
+    }
+  }
+  return out;
+}
+function nextOccurrence(a, fromIso) {
+  return apptOccurrences(a, fromIso, addDays(fromIso, 366 * 5))[0] || null;
+}
+function parseRepeat(v) {
+  if (!v) return "";
+  const [freq, iv] = v.split(":");
+  return { freq, interval: iv ? parseInt(iv, 10) : 1 };
+}
+function repeatValue(r) { return (!r || !r.freq) ? "" : (r.interval > 1 ? `${r.freq}:${r.interval}` : r.freq); }
+function recurLabel(r, anchorIso) {
+  if (!r || !r.freq) return "";
+  const iv = r.interval || 1;
+  if (r.freq === "weekly") {
+    const dow = DOW[(new Date(anchorIso + "T00:00").getDay() + 6) % 7];
+    return (iv === 2 ? "every other " : iv === 1 ? "every " : `every ${iv} weeks · `) + dow;
+  }
+  if (r.freq === "daily") return iv === 1 ? "every day" : `every ${iv} days`;
+  return iv === 1 ? "monthly" : `every ${iv} months`;
+}
 
 // ---- api --------------------------------------------------------------------
 
@@ -132,15 +193,33 @@ function render() {
   renderTodos();
 }
 
+// build one form control from a field spec (input or select). shared by the
+// add row and the inline edit row so both support the same field types.
+function makeField(f) {
+  if (f.type === "select") {
+    const s = el("select");
+    if (f.cls) s.className = f.cls;
+    (f.options || []).forEach(o => {
+      const op = el("option", null, o.label);
+      op.value = o.value;
+      if (o.value === (f.value || "")) op.selected = true;
+      s.appendChild(op);
+    });
+    return s;
+  }
+  const i = el("input");
+  i.type = f.type || "text";
+  if (f.cls) i.className = f.cls;
+  i.placeholder = f.ph || "";
+  if (f.value != null && f.value !== "") i.value = f.value;
+  return i;
+}
+
 function addRow(fields, onSubmit) {
   const form = el("form", "add");
   const inputs = {};
   fields.forEach(f => {
-    const i = el("input");
-    i.type = f.type || "text";
-    i.placeholder = f.ph || "";
-    if (f.cls) i.className = f.cls;
-    if (f.value) i.value = f.value;
+    const i = makeField(f);
     inputs[f.name] = i;
     form.appendChild(i);
   });
@@ -195,11 +274,7 @@ function editRow(item, entity) {
   const fields = editFields(entity, item);
   const inputs = {};
   fields.forEach(f => {
-    const i = el("input");
-    i.type = f.type || "text";
-    if (f.cls) i.className = f.cls;
-    i.placeholder = f.ph || "";
-    i.value = f.value || "";
+    const i = makeField(f);
     inputs[f.name] = i;
     form.appendChild(i);
   });
@@ -224,6 +299,7 @@ function editFields(entity, item) {
     { name: "date", type: "date", value: (item.when || "").slice(0, 10) },
     { name: "time", type: "time", value: timeOf(item.when) },
     { name: "location", ph: "where", value: item.location },
+    { name: "repeat", type: "select", value: repeatValue(item.recur), options: REPEAT_OPTIONS },
   ];
   if (entity === "achievements") return [
     { name: "title", cls: "title", value: item.title },
@@ -238,7 +314,7 @@ function editFields(entity, item) {
 
 function buildPatch(entity, v) {
   if (entity === "appointments")
-    return { title: v.title, when: v.time ? `${v.date} ${v.time}` : v.date, location: v.location };
+    return { title: v.title, when: v.time ? `${v.date} ${v.time}` : v.date, location: v.location, recur: parseRepeat(v.repeat) };
   if (entity === "achievements")
     return { title: v.title, date: v.date, note: v.note };
   return { title: v.title, due: v.due };
@@ -274,10 +350,11 @@ function renderToday() {
 
   const grid = el("div", "agenda");
 
-  // appointments today
-  const appts = state.appointments
-    .filter(a => (a.when || "").slice(0, 10) === t)
-    .sort((a, b) => (a.when > b.when ? 1 : -1));
+  // appointments today (expand recurring series to today's occurrence)
+  const appts = [];
+  state.appointments.forEach(a =>
+    apptOccurrences(a, t, t).forEach(w => appts.push({ ...a, when: w })));
+  appts.sort((a, b) => (a.when > b.when ? 1 : -1));
   grid.appendChild(agendaCard("appointments today", appts.length
     ? appts.map(a => agendaLine("appt", (timeOf(a.when) ? timeOf(a.when) + "  " : "") + a.title, a.location))
     : [el("div", "muted small", "nothing scheduled")]));
@@ -306,12 +383,13 @@ function renderToday() {
   winCard.appendChild(q);
   grid.appendChild(winCard);
 
-  // next 7 days peek
-  const soon = state.appointments
-    .filter(a => { const d = (a.when || "").slice(0, 10); return d > t && d <= addDays(t, 7); })
-    .sort((a, b) => (a.when > b.when ? 1 : -1));
+  // next 7 days peek (occurrences after today, recurring series included)
+  const soon = [];
+  state.appointments.forEach(a =>
+    apptOccurrences(a, addDays(t, 1), addDays(t, 7)).forEach(w => soon.push({ when: w, title: a.title })));
+  soon.sort((a, b) => (a.when > b.when ? 1 : -1));
   grid.appendChild(agendaCard("next 7 days", soon.length
-    ? soon.map(a => agendaLine("appt", `${(a.when || "").slice(5, 10)}  ${a.title}`, ""))
+    ? soon.map(a => agendaLine("appt", `${a.when.slice(5, 10)}  ${a.title}`, ""))
     : [el("div", "muted small", "clear")]));
 
   root.appendChild(grid);
@@ -421,12 +499,20 @@ function renderAppointments() {
     { name: "when", type: "date", value: selDay },
     { name: "time", type: "time" },
     { name: "location", ph: "where (optional)" },
-  ], d => add("appointments", { title: d.title, when: d.time ? `${d.when} ${d.time}` : d.when, location: d.location })));
+    { name: "repeat", type: "select", options: REPEAT_OPTIONS },
+  ], d => add("appointments", { title: d.title, when: d.time ? `${d.when} ${d.time}` : d.when, location: d.location, recur: parseRepeat(d.repeat) })));
   const body = el("div");
-  mountList(body, state.appointments, (a) => listRow(a, "appointments", [
-    el("span", "when", fmtWhen(a.when)),
-    buildBody(a.title, a.location),
-  ]), "no appointments. press n to add one.");
+  // recurring series show their next occurrence in the when column; the label
+  // (e.g. "every other thu") makes the repetition explicit.
+  mountList(body, state.appointments, (a) => {
+    const rec = recurLabel(a.recur, (a.when || "").slice(0, 10));
+    const shown = rec ? (nextOccurrence(a, todayIso()) || a.when) : a.when;
+    const sub = [a.location, rec].filter(Boolean).join("  ·  ");
+    return listRow(a, "appointments", [
+      el("span", "when", fmtWhen(shown)),
+      buildBody(a.title, sub),
+    ]);
+  }, "no appointments. press n to add one.");
   root.appendChild(body);
 }
 
@@ -531,8 +617,8 @@ function renderDayPanel() {
   const panel = el("div"); panel.id = "day-panel";
   panel.appendChild(el("h3", null, selDay));
   const items = [];
-  state.appointments.filter(a => (a.when || "").slice(0, 10) === selDay)
-    .forEach(a => items.push(["appt", `${timeOf(a.when) ? timeOf(a.when) + " " : ""}${a.title}`.trim()]));
+  state.appointments.forEach(a => apptOccurrences(a, selDay, selDay)
+    .forEach(w => items.push(["appt", `${timeOf(w) ? timeOf(w) + " " : ""}${a.title}`.trim()])));
   state.todos.filter(t => t.due === selDay)
     .forEach(t => items.push(["todo", (t.done ? "✓ " : "") + t.title]));
   state.achievements.filter(a => a.date === selDay)
@@ -558,7 +644,10 @@ function renderDayPanel() {
 function indexByDay() {
   const m = {};
   const touch = (ds, k) => { (m[ds] = m[ds] || {})[k] = true; };
-  state.appointments.forEach(a => { if (a.when) touch(a.when.slice(0, 10), "appt"); });
+  // expand appointment occurrences across the visible grid (month ± padding week)
+  const from = addDays(iso(startOfMonth(calCursor)), -7);
+  const to = addDays(iso(new Date(calCursor.getFullYear(), calCursor.getMonth() + 1, 0)), 7);
+  state.appointments.forEach(a => apptOccurrences(a, from, to).forEach(w => touch(w.slice(0, 10), "appt")));
   state.todos.forEach(t => { if (t.due) touch(t.due, "todo"); });
   state.achievements.forEach(a => { if (a.date) touch(a.date, "ach"); });
   return m;

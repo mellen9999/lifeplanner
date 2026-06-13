@@ -31,7 +31,9 @@ five sections (number keys switch them):
    one-field win logger, the next 7 days, and a streak ribbon. open this first each day.
 2. **calendar** — month grid; click a day to see/add what's on it. colored marks: green = a win,
    blue = an appointment, yellow = a due todo.
-3. **appointments** — things at a time. add with a date (+ optional time) and place.
+3. **appointments** — things at a time. add with a date (+ optional time) and place. set
+   **repeat** (daily / weekly / every-other-week / monthly) to make it recur — the list shows the
+   next occurrence, the calendar marks every one, and your phone gets it as a standard repeating event.
 4. **achievements** — your wins log, with a contribution heatmap + streak counters. log small wins
    often; watching the streak grow is the point.
 5. **todos** — things to do; give one a due date and it becomes a reminder on the calendar + phone.

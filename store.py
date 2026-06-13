@@ -8,7 +8,8 @@ import json
 import os
 import stat
 import time
-from datetime import date, datetime
+from calendar import monthrange
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -27,8 +28,9 @@ ENTITIES = ("achievements", "todos", "appointments")
 PATCHABLE = {
     "achievements": ("title", "date", "note"),
     "todos": ("title", "done", "due"),
-    "appointments": ("title", "when", "location", "note"),
+    "appointments": ("title", "when", "location", "note", "recur"),
 }
+RECUR_FREQS = ("daily", "weekly", "monthly")
 DEFAULT_SETTINGS = {"theme": "dark", "accent": "#ff8700", "ics_sync_path": ""}
 
 
@@ -131,7 +133,8 @@ def _normalize(name, item):
     elif name == "appointments":
         base.update(when=_norm_when(str(item.get("when") or "").strip()),
                     location=str(item.get("location", "")).strip(),
-                    note=str(item.get("note", "")).strip())
+                    note=str(item.get("note", "")).strip(),
+                    recur=_norm_recur(item.get("recur")))
     return base
 
 
@@ -154,7 +157,9 @@ def update_item(name, item_id, patch):
                 allowed = PATCHABLE.get(name, ())
                 for k, v in patch.items():
                     if k in allowed:
-                        it[k] = v
+                        # structured field — validate so a bad ui/llm value can't
+                        # store a malformed rule that breaks expansion later.
+                        it[k] = _norm_recur(v) if k == "recur" else v
                 found = it
                 break
         if found is None:
@@ -221,6 +226,88 @@ def when_date(when):
     return (when or "")[:10]
 
 
+# ---- recurrence -------------------------------------------------------------
+# an appointment may repeat. recur is "" (one-time) or a small validated dict
+# {freq: daily|weekly|monthly, interval: >=1, until: "YYYY-MM-DD"|""}. weekly
+# naturally keeps the anchor's weekday, so "every other thursday" is just a
+# thursday anchor with freq=weekly, interval=2.
+
+def _norm_recur(r):
+    """coerce any input into a valid recur dict, or "" if not a real rule."""
+    if not r:
+        return ""
+    if isinstance(r, str):
+        r = {"freq": r}
+    if not isinstance(r, dict):
+        return ""
+    freq = str(r.get("freq", "")).strip().lower()
+    if freq not in RECUR_FREQS:
+        return ""
+    try:
+        interval = max(1, int(r.get("interval", 1) or 1))
+    except (TypeError, ValueError):
+        interval = 1
+    until = ""
+    u = str(r.get("until") or "").strip()
+    if u:
+        try:
+            until = date.fromisoformat(u[:10]).isoformat()
+        except ValueError:
+            until = ""
+    return {"freq": freq, "interval": interval, "until": until}
+
+
+def occurrences_in(appt, start_iso, end_iso):
+    """when-strings for every time this appointment falls within [start, end]
+    (inclusive). non-recurring → its single date if in range. preserves time.
+    monthly follows RRULE semantics: anchors on the start day and skips months
+    that lack it (jan 31 → mar 31, no feb) so the app matches the phone .ics."""
+    when = appt.get("when", "")
+    if not when:
+        return []
+    try:
+        anchor = date.fromisoformat(when[:10])
+        start = date.fromisoformat(start_iso[:10])
+        end = date.fromisoformat(end_iso[:10])
+    except ValueError:
+        return []
+    time_part = when[10:]  # "" for all-day, else "THH:MM"
+    recur = appt.get("recur") or ""
+    if not recur:
+        return [when] if start <= anchor <= end else []
+    freq, interval = recur["freq"], max(1, recur.get("interval", 1))
+    until = date.fromisoformat(recur["until"]) if recur.get("until") else None
+    limit = end if until is None else min(end, until)
+    out = []
+    if freq == "monthly":
+        for k in range(10000):
+            tot = anchor.month - 1 + interval * k
+            y, m = anchor.year + tot // 12, tot % 12 + 1
+            if date(y, m, 1) > limit:
+                break
+            if anchor.day > monthrange(y, m)[1]:
+                continue  # this month has no such day — skip it
+            d = date(y, m, anchor.day)
+            if start <= d <= limit:
+                out.append(d.isoformat() + time_part)
+    else:
+        step = timedelta(days=interval if freq == "daily" else 7 * interval)
+        d, guard = anchor, 0
+        while d <= limit and guard < 100000:
+            guard += 1
+            if d >= start:
+                out.append(d.isoformat() + time_part)
+            d += step
+    return out
+
+
+def next_occurrence(appt, on_or_after_iso):
+    """the soonest when-string on/after the given date, or None."""
+    horizon = (date.fromisoformat(on_or_after_iso[:10]) + timedelta(days=366 * 5)).isoformat()
+    occ = occurrences_in(appt, on_or_after_iso, horizon)
+    return occ[0] if occ else None
+
+
 # ---- aggregate views --------------------------------------------------------
 
 def state():
@@ -253,9 +340,14 @@ def version():
 def day(target):
     """all items on a given YYYY-MM-DD date."""
     d = _norm_date(target)
+    appts = []
+    for a in list_items("appointments"):
+        occ = occurrences_in(a, d, d)
+        if occ:
+            appts.append({**a, "when": occ[0]})  # show the occurrence, not the anchor
     return {
         "date": d,
-        "appointments": [a for a in list_items("appointments") if when_date(a.get("when")) == d],
+        "appointments": appts,
         "todos": [t for t in list_items("todos") if t.get("due") == d],
         "achievements": [a for a in list_items("achievements") if a.get("date") == d],
     }
@@ -283,13 +375,33 @@ def _fold(line):
     return "\r\n".join(out)
 
 
-def _vevent(uid, summary, dtstart, all_day, desc, location):
+def _rrule(recur, all_day):
+    """RFC5545 RRULE line for a recur dict, or "" — phones expand it natively."""
+    if not recur:
+        return ""
+    freq = {"daily": "DAILY", "weekly": "WEEKLY", "monthly": "MONTHLY"}.get(recur.get("freq"))
+    if not freq:
+        return ""
+    parts = [f"FREQ={freq}"]
+    if recur.get("interval", 1) > 1:
+        parts.append(f"INTERVAL={recur['interval']}")
+    until = recur.get("until") or ""
+    if until:
+        u = until.replace("-", "")
+        parts.append(f"UNTIL={u}" if all_day else f"UNTIL={u}T235959")
+    return "RRULE:" + ";".join(parts)
+
+
+def _vevent(uid, summary, dtstart, all_day, desc, location, recur=""):
     lines = ["BEGIN:VEVENT", f"UID:{uid}@lifeplanner"]
     if all_day:
         lines.append(f"DTSTART;VALUE=DATE:{dtstart:%Y%m%d}")
     else:
         # floating local time (no TZID) — matches "when" with no zone info
         lines.append(f"DTSTART:{dtstart:%Y%m%dT%H%M%S}")
+    rrule = _rrule(recur, all_day)
+    if rrule:
+        lines.append(rrule)
     lines.append(f"SUMMARY:{_ics_escape(summary)}")
     if desc:
         lines.append(f"DESCRIPTION:{_ics_escape(desc)}")
@@ -312,7 +424,8 @@ def build_ics():
         except ValueError:
             continue
         out += _vevent(ap.get("id", ""), ap.get("title", "appointment"), dt,
-                       all_day, ap.get("note", ""), ap.get("location", ""))
+                       all_day, ap.get("note", ""), ap.get("location", ""),
+                       ap.get("recur", ""))
     for td in list_items("todos"):
         due = td.get("due", "")
         if not due or td.get("done"):

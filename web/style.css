@@ -69,9 +69,12 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
   display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;
   border: 1px solid var(--line); padding: 8px; align-items: center;
 }
-.add input, .add textarea {
+.add input, .add textarea, .add select {
   font: inherit; background: var(--field); color: var(--fg);
-  border: 1px solid var(--line); padding: 6px 8px;
+  border: 1px solid var(--line); padding: 6px 8px; border-radius: 0;
+}
+.add select, .row.editing select {
+  cursor: pointer; -webkit-appearance: none; appearance: none;
 }
 .add input:focus, .add textarea:focus, .add input.flash { outline: 2px solid var(--accent); }
 .add input.title { flex: 1 1 200px; }
@@ -199,8 +202,8 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .rowedit { margin-left: auto; color: var(--muted); cursor: pointer; padding: 0 6px; font-size: 12px; }
 .row:hover .rowedit:hover, .row.sel .rowedit:hover { color: var(--inv-bg); background: var(--inv-fg); }
 .row.editing { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: var(--bg); color: var(--fg); }
-.row.editing input { font: inherit; background: var(--field); color: var(--fg);
-  border: 1px solid var(--line); padding: 5px 7px; }
+.row.editing input, .row.editing select { font: inherit; background: var(--field); color: var(--fg);
+  border: 1px solid var(--line); padding: 5px 7px; border-radius: 0; }
 .row.editing input:focus { outline: 2px solid var(--accent); }
 .row.editing input.title { flex: 1 1 180px; }
 .row.editing button.rowedit { margin-left: 0; border: 1px solid var(--fg); padding: 5px 12px; color: var(--fg); background: var(--bg); }

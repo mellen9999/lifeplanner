@@ -142,6 +142,73 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(len(d["achievements"]), 1)
         self.assertEqual(len(d["todos"]), 0)
 
+    # ---- recurrence ----
+    def test_recur_normalized_and_stored(self):
+        a = store.add_item("appointments",
+                           {"title": "bhc", "when": "2026-06-11 09:00", "recur": "weekly"})
+        self.assertEqual(a["recur"], {"freq": "weekly", "interval": 1, "until": ""})
+
+    def test_recur_bad_freq_dropped(self):
+        a = store.add_item("appointments",
+                           {"title": "x", "when": "2026-06-11", "recur": {"freq": "yearly"}})
+        self.assertEqual(a["recur"], "")
+
+    def test_weekly_biweekly_occurrences(self):
+        a = store.add_item("appointments",
+                           {"title": "bhc", "when": "2026-06-11 09:00",
+                            "recur": {"freq": "weekly", "interval": 2}})
+        occ = store.occurrences_in(a, "2026-06-01", "2026-07-31")
+        self.assertEqual([w[:10] for w in occ],
+                         ["2026-06-11", "2026-06-25", "2026-07-09", "2026-07-23"])
+        self.assertTrue(occ[0].endswith("T09:00"))  # time preserved
+
+    def test_occurrence_lands_on_day_view(self):
+        store.add_item("appointments",
+                       {"title": "bhc", "when": "2026-06-11 09:00",
+                        "recur": {"freq": "weekly", "interval": 2}})
+        d = store.day("2026-06-25")  # a future occurrence, not the anchor
+        self.assertEqual(len(d["appointments"]), 1)
+        self.assertEqual(d["appointments"][0]["when"], "2026-06-25T09:00")
+
+    def test_non_occurrence_day_empty(self):
+        store.add_item("appointments",
+                       {"title": "bhc", "when": "2026-06-11",
+                        "recur": {"freq": "weekly", "interval": 2}})
+        self.assertEqual(len(store.day("2026-06-18")["appointments"]), 0)  # off-week
+
+    def test_recur_until_caps_series(self):
+        a = store.add_item("appointments",
+                           {"title": "x", "when": "2026-06-11",
+                            "recur": {"freq": "weekly", "interval": 1, "until": "2026-06-25"}})
+        occ = [w[:10] for w in store.occurrences_in(a, "2026-06-01", "2026-12-31")]
+        self.assertEqual(occ, ["2026-06-11", "2026-06-18", "2026-06-25"])
+
+    def test_next_occurrence(self):
+        a = store.add_item("appointments",
+                           {"title": "x", "when": "2026-06-11",
+                            "recur": {"freq": "weekly", "interval": 2}})
+        self.assertEqual(store.next_occurrence(a, "2026-06-12"), "2026-06-25")
+
+    def test_monthly_skips_short_months(self):
+        # RRULE semantics: anchor on day 31, skip months without it (no feb)
+        a = store.add_item("appointments",
+                           {"title": "x", "when": "2026-01-31", "recur": {"freq": "monthly"}})
+        occ = [w[:10] for w in store.occurrences_in(a, "2026-01-01", "2026-05-31")]
+        self.assertEqual(occ, ["2026-01-31", "2026-03-31", "2026-05-31"])
+
+    def test_monthly_normal_day(self):
+        a = store.add_item("appointments",
+                           {"title": "x", "when": "2026-01-15", "recur": {"freq": "monthly"}})
+        occ = [w[:10] for w in store.occurrences_in(a, "2026-01-01", "2026-03-31")]
+        self.assertEqual(occ, ["2026-01-15", "2026-02-15", "2026-03-15"])
+
+    def test_ics_emits_rrule(self):
+        store.add_item("appointments",
+                       {"title": "bhc", "when": "2026-06-11 09:00",
+                        "recur": {"freq": "weekly", "interval": 2}})
+        ics = store.build_ics()
+        self.assertIn("RRULE:FREQ=WEEKLY;INTERVAL=2", ics)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

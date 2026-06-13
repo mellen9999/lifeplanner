@@ -19,6 +19,22 @@ import store
 mcp = FastMCP("lifeplanner")
 
 
+def _upcoming(appts, today):
+    """appointments annotated with their next occurrence on/after `today`,
+    soonest first — recurring series resolve to their next hit, not the anchor."""
+    out = []
+    for a in appts:
+        nxt = store.next_occurrence(a, today)
+        if nxt:
+            out.append({**a, "when": nxt})
+    return sorted(out, key=lambda a: a["when"])
+
+
+def _recur(recur, interval):
+    """build a recur rule from loose tool args, or '' for one-time."""
+    return {"freq": recur, "interval": interval} if recur else ""
+
+
 # ---- read -------------------------------------------------------------------
 
 @mcp.tool()
@@ -32,9 +48,7 @@ def get_overview() -> dict:
     achs = store.list_items("achievements")
     return {
         "today": store.day(today),
-        "upcoming_appointments": sorted(
-            [a for a in appts if store.when_date(a.get("when")) >= today],
-            key=lambda a: a.get("when", ""))[:10],
+        "upcoming_appointments": _upcoming(appts, today)[:10],
         "due_soon_todos": sorted(
             [t for t in todos if not t.get("done") and t.get("due")
              and today <= t["due"] <= horizon],
@@ -70,12 +84,13 @@ def list_todos(include_done: bool = False) -> list:
 
 @mcp.tool()
 def list_appointments(upcoming_only: bool = True) -> list:
-    """appointments, soonest first. upcoming_only hides past ones."""
+    """appointments, soonest first. upcoming_only resolves each to its next
+    occurrence (recurring ones included) and hides fully-past ones."""
     today = date.today().isoformat()
-    appts = sorted(store.list_items("appointments"), key=lambda a: a.get("when", ""))
+    appts = store.list_items("appointments")
     if upcoming_only:
-        appts = [a for a in appts if store.when_date(a.get("when")) >= today]
-    return appts
+        return _upcoming(appts, today)
+    return sorted(appts, key=lambda a: a.get("when", ""))
 
 
 # ---- write ------------------------------------------------------------------
@@ -100,19 +115,27 @@ def complete_todo(todo_id: str) -> dict:
 
 
 @mcp.tool()
-def add_appointment(title: str, when: str, location: str = "", note: str = "") -> dict:
-    """add an appointment. when = 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM'."""
+def add_appointment(title: str, when: str, location: str = "", note: str = "",
+                    recur: str = "", interval: int = 1) -> dict:
+    """add an appointment. when = 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM'.
+    to repeat it, set recur = 'daily' | 'weekly' | 'monthly' and interval = N
+    (e.g. recur='weekly', interval=2 on a thursday = every other thursday)."""
     return store.add_item("appointments",
-                          {"title": title, "when": when, "location": location, "note": note})
+                          {"title": title, "when": when, "location": location,
+                           "note": note, "recur": _recur(recur, interval)})
 
 
 @mcp.tool()
 def update_appointment(item_id: str, title: str = "", when: str = "",
-                       location: str = "", note: str = "") -> dict:
+                       location: str = "", note: str = "",
+                       recur: str = "", interval: int = 1) -> dict:
     """edit/reschedule an appointment by id. only non-empty fields are changed.
-    when = 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM'."""
+    when = 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM'. set recur='daily'|'weekly'|'monthly'
+    (+ interval) to make it repeat, or recur='none' to clear repetition."""
     patch = {k: v for k, v in
              {"title": title, "when": when, "location": location, "note": note}.items() if v}
+    if recur:
+        patch["recur"] = "" if recur.lower() == "none" else _recur(recur, interval)
     return store.update_item("appointments", item_id, patch) or {"error": "not found", "id": item_id}
 
 
