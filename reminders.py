@@ -62,7 +62,8 @@ def _push(title, message):
 
 def _load_last(now):
     try:
-        return datetime.fromisoformat(STATE.read_text("utf-8").strip())
+        # always naive (drop any tz offset) so it compares with datetime.now()
+        return datetime.fromisoformat(STATE.read_text("utf-8").strip()).replace(tzinfo=None)
     except (OSError, ValueError):
         return now  # first run: don't fire historical reminders
 
