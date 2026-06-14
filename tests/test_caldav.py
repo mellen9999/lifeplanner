@@ -20,7 +20,7 @@ except Exception:
     HAVE = False
 
 
-def _appt(ics, href="/mellen/lifeplanner/x.ics", etag="e"):
+def _appt(ics, href="/user/lifeplanner/x.ics", etag="e"):
     cal = Calendar.from_ical(ics)
     comp = next(c for c in cal.walk("VEVENT"))
     return cd._event_to_appt(comp, href, etag, ics)
@@ -82,7 +82,7 @@ class CalDAVMappingTest(unittest.TestCase):
     def test_id_from_href_for_phone_event(self):
         a = _appt(_wrap("BEGIN:VEVENT\nUID:random-phone-uid\nDTSTART:20260101\n"
                         "SUMMARY:x\nEND:VEVENT"),
-                  href="/mellen/lifeplanner/9f8e7d6c-1234.ics")
+                  href="/user/lifeplanner/9f8e7d6c-1234.ics")
         self.assertEqual(a["id"], "9f8e7d6c-1234")  # full stem, not truncated
 
     def test_missing_dtstart_dropped(self):
@@ -117,15 +117,20 @@ class CalDAVMappingTest(unittest.TestCase):
     # ---- path safety ----
     def test_safe_path_rejects_traversal(self):
         with self.assertRaises(cd.CalDAVError):
-            cd._safe_path("/mellen/lifeplanner/", "/mellen/lifeplanner/../../etc/x.ics")
+            cd._safe_path("/user/lifeplanner/", "/user/lifeplanner/../../etc/x.ics")
+
+    def test_safe_path_rejects_encoded_traversal(self):
+        # a hostile server could percent-encode the traversal to slip past a naive check
+        with self.assertRaises(cd.CalDAVError):
+            cd._safe_path("/user/lifeplanner/", "/user/lifeplanner/%2e%2e/%2e%2e/etc/x.ics")
 
     def test_safe_path_rejects_outside(self):
         with self.assertRaises(cd.CalDAVError):
-            cd._safe_path("/mellen/lifeplanner/", "/other/x.ics")
+            cd._safe_path("/user/lifeplanner/", "/other/x.ics")
 
     def test_safe_path_allows_inside(self):
-        p = "/mellen/lifeplanner/abc.ics"
-        self.assertEqual(cd._safe_path("/mellen/lifeplanner/", p), p)
+        p = "/user/lifeplanner/abc.ics"
+        self.assertEqual(cd._safe_path("/user/lifeplanner/", p), p)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """appointments backend over CalDAV (radicale) — lifeplanner's optional sync layer.
 
 single source of truth = the caldav collection, shared with the phone (DAVx5) over
-tailscale. transport is stdlib http.client (radicale's REST is simple: REPORT to
+a private network. transport is stdlib http.client (radicale's REST is simple: REPORT to
 list, PUT to write, DELETE to remove); the vetted `icalendar` lib does the one hard
 part — parsing events the phone creates. store.py falls back to a local cache when
 the server is unreachable, so the desktop never blanks.
@@ -15,7 +15,7 @@ import http.client
 import json
 from datetime import date, datetime
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 from xml.etree.ElementTree import ParseError
 
 import defusedxml.ElementTree as ET
@@ -249,7 +249,10 @@ def _resolve_href(cfg, item_id):
 def _safe_path(base_path, path):
     """reject a resource path that escapes the configured collection — guards
     against a hostile/compromised server handing back a traversing href."""
-    if not path.startswith(base_path) or "/../" in path or path.endswith("/.."):
+    # decode first so percent-encoded traversal (%2F..%2F) can't slip past.
+    decoded = unquote(path)
+    if (not path.startswith(base_path)
+            or "/../" in decoded or decoded.endswith("/..") or ".." in decoded.split("/")):
         raise CalDAVError(f"href outside collection: {path}")
     return path
 

@@ -21,8 +21,10 @@ import store
 
 SERVER = os.environ.get("LIFEPLANNER_NTFY_SERVER", "").strip().rstrip("/")
 TOPIC = os.environ.get("LIFEPLANNER_NTFY_TOPIC", "").strip()
+# positive minute-offsets only — a negative offset would fire *after* the appt and
+# never match the once-only gate, so it's silently dropped here rather than later.
 OFFSETS = sorted({int(x) for x in os.environ.get("LIFEPLANNER_REMINDERS", "1440,60").split(",")
-                  if x.strip().lstrip("-").isdigit()}, reverse=True)
+                  if x.strip().isdigit()}, reverse=True)
 STATE = store.DATA / "reminders_last.txt"
 HORIZON_DAYS = 2  # how far ahead to look (covers the 1-day-before reminder)
 
@@ -63,7 +65,10 @@ def _push(title, message):
 def _load_last(now):
     try:
         # always naive (drop any tz offset) so it compares with datetime.now()
-        return datetime.fromisoformat(STATE.read_text("utf-8").strip()).replace(tzinfo=None)
+        last = datetime.fromisoformat(STATE.read_text("utf-8").strip()).replace(tzinfo=None)
+        # clamp to now: a future-dated state (clock jumped back, hand-edited file)
+        # would otherwise suppress every reminder forever.
+        return min(last, now)
     except (OSError, ValueError):
         return now  # first run: don't fire historical reminders
 
@@ -83,13 +88,18 @@ def main():
     now = datetime.now().replace(microsecond=0)
     last = _load_last(now)
     start, end = now.date().isoformat(), (now + timedelta(days=HORIZON_DAYS)).date().isoformat()
+    ok = True
     for ap in store.list_items("appointments"):
         title = ap.get("title", "appointment")
         for occ in store.occurrences_in(ap, start, end):
             for fire_dt, label, when_text in _fires_for(occ):
                 if last < fire_dt <= now:  # became due since the last check → fire once
-                    _push(title, f"{label} · {when_text}")
-    _save_last(now)
+                    try:
+                        _push(title, f"{label} · {when_text}")
+                    except OSError:  # urllib URLError → ntfy/network down
+                        ok = False   # don't advance state; retry the window next run
+    if ok:  # only advance past reminders we actually delivered → never miss one
+        _save_last(now)
 
 
 if __name__ == "__main__":

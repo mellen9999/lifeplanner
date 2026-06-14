@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """lifeplanner MCP server — claude's door into the same local store.
 
-reads fresh on every call (no cache), so mellen's ui edits are always visible.
+reads fresh on every call (no cache), so the user's ui edits are always visible.
 needs the official sdk:  pip install mcp
 """
 
@@ -39,7 +39,7 @@ def _recur(recur, interval):
 
 @mcp.tool()
 def get_overview() -> dict:
-    """snapshot of mellen's life right now: today's items, upcoming appointments,
+    """snapshot of the user's life right now: today's items, upcoming appointments,
     recent achievements, and open todo count. use this to check in / coach."""
     today = date.today().isoformat()
     horizon = (date.today() + timedelta(days=14)).isoformat()
@@ -133,10 +133,17 @@ def update_appointment(item_id: str, title: str = "", when: str = "",
                        location: str = "", note: str = "",
                        recur: str = "", interval: int = 1) -> dict:
     """edit/reschedule an appointment by id. only non-empty fields are changed.
-    when = 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM'. set recur='daily'|'weekly'|'monthly'
-    (+ interval) to make it repeat, or recur='none' to clear repetition."""
-    patch = {k: v for k, v in
-             {"title": title, "when": when, "location": location, "note": note}.items() if v}
+    when = 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM'. pass 'none' to clear location, note,
+    or recur (recur='daily'|'weekly'|'monthly' + interval makes it repeat)."""
+    patch = {}
+    if title:
+        patch["title"] = title
+    if when:
+        patch["when"] = when
+    if location:
+        patch["location"] = "" if location.lower() == "none" else location
+    if note:
+        patch["note"] = "" if note.lower() == "none" else note
     if recur:
         patch["recur"] = "" if recur.lower() == "none" else _recur(recur, interval)
     try:
@@ -158,8 +165,15 @@ def update_todo(item_id: str, title: str = "", due: str = "") -> dict:
 
 @mcp.tool()
 def update_achievement(item_id: str, title: str = "", date: str = "", note: str = "") -> dict:
-    """edit a logged achievement by id. only non-empty fields are changed."""
-    patch = {k: v for k, v in {"title": title, "date": date, "note": note}.items() if v}
+    """edit a logged achievement by id. only non-empty fields are changed; pass
+    note='none' to clear the note."""
+    patch = {}
+    if title:
+        patch["title"] = title
+    if date:
+        patch["date"] = date
+    if note:
+        patch["note"] = "" if note.lower() == "none" else note
     return store.update_item("achievements", item_id, patch) or {"error": "not found", "id": item_id}
 
 

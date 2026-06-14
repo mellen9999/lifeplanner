@@ -25,6 +25,9 @@ class StoreTest(unittest.TestCase):
             p = store._path(name)
             if p.exists():
                 p.unlink()
+        # drop a lock left behind by a crashed test so the next one never blocks
+        if store.LOCK.exists():
+            store.LOCK.unlink()
 
     # ---- create / read ----
     def test_add_and_list(self):

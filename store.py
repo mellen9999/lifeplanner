@@ -22,7 +22,7 @@ DATA = Path(os.environ.get("LIFEPLANNER_DATA") or (BASE / "data")).expanduser()
 LOCK = DATA / ".lock"
 ICS = DATA / "lifeplanner.ics"
 # appointments cache — only used in caldav mode, so the desktop still shows the
-# last-known appointments when the server (mele) is briefly unreachable.
+# last-known appointments when the caldav server is briefly unreachable.
 APPT_CACHE = DATA / "appointments.cache.json"
 
 # optional caldav backend for appointments. when .caldav.json is present, the
@@ -253,10 +253,21 @@ def update_item(name, item_id, patch):
             if it.get("id") == item_id:
                 allowed = PATCHABLE.get(name, ())
                 for k, v in patch.items():
-                    if k in allowed:
-                        # structured field — validate so a bad ui/llm value can't
-                        # store a malformed rule that breaks expansion later.
-                        it[k] = _norm_recur(v) if k == "recur" else v
+                    if k not in allowed:
+                        continue
+                    # validate date-ish fields so a bad ui/llm value can't store a
+                    # malformed date/rule that crashes occurrence expansion later.
+                    if k == "recur":
+                        it[k] = _norm_recur(v)
+                    elif k == "when":
+                        it[k] = _norm_when(str(v or "").strip())
+                    elif k == "due":
+                        sv = str(v or "").strip()
+                        it[k] = _norm_date(sv) if sv else ""
+                    elif k == "date":
+                        it[k] = _norm_date(str(v or "").strip())
+                    else:
+                        it[k] = v
                 found = it
                 break
         if found is None:
