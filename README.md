@@ -12,7 +12,7 @@ like claude. no accounts, no cloud, no tracking. your data never leaves your mac
 - **stdlib-only web app** — python 3.8+, no dependencies. clone and run.
 - **square, terminal-styled ui** — light + dark, eight accent colors, keyboard-first (vim keys).
 - **read-only `.ics` feed** — subscribe from your phone, see appointments + due todos there.
-- **mcp server** — let an assistant log your wins, add todos, and review your day (one optional dep).
+- **mcp server** — let an assistant log your wins, add todos, flag what's slipping, and review your week (one optional dep).
 - **crash-safe storage** — atomic writes, cross-process lock, corrupt-file-safe.
 
 ## quick start
@@ -72,6 +72,7 @@ it creates `.venv`, installs the mcp sdk, and prints a ready `claude mcp add …
 script prints the `\.venv\Scripts\python.exe` path). run it, restart claude, and check `/mcp`. the assistant
 then has these tools, all writing to the same local files the web app reads:
 
+partner: `whats_slipping` (what needs attention now) · `review_period` (how the last N days went)
 read: `get_overview` · `get_day` · `get_week` · `get_range` · `list_achievements` ·
 `list_todos` · `list_appointments`
 write: `add_achievement` · `add_todo` · `complete_todo` · `add_appointment` ·

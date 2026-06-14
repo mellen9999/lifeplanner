@@ -15,6 +15,7 @@ except ImportError:
     raise
 
 import store
+import review as review_mod
 
 mcp = FastMCP("lifeplanner")
 
@@ -47,6 +48,26 @@ def _current_recur(item_id):
     a = next((x for x in store.list_items("appointments") if x.get("id") == item_id), None)
     r = a.get("recur") if a else None
     return r if isinstance(r, dict) else {}
+
+
+# ---- planning partner -------------------------------------------------------
+
+@mcp.tool()
+def whats_slipping() -> dict:
+    """what needs attention right now: overdue todos (most late first), stale
+    undated todos, days since the last logged win, and the next 2 days' load.
+    OPEN every check-in with this — surface what's slipping before anything else,
+    then help the user act on it (reschedule, drop, or do it)."""
+    return review_mod.whats_slipping()
+
+
+@mcp.tool()
+def review_period(days: int = 7) -> dict:
+    """retrospective for the last N days (default 7): what got done, what slipped,
+    wins logged, completion rate over what was due, the busiest day, and the win
+    gap. use for a real weekly review — reflect on how it went, name the pattern,
+    then PROPOSE (never silently make) a plan for the next stretch."""
+    return review_mod.review(days)
 
 
 # ---- read -------------------------------------------------------------------
