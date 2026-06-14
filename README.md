@@ -1,9 +1,9 @@
 # lifeplanner
 
-a local, private life dashboard — **calendar · appointments · achievements · todos** — with a
-twist: an llm can read and write it too. one set of plain json files on your disk, two doors into
-them: a fast vanilla web ui for you, and an [mcp](https://modelcontextprotocol.io) server for an
-assistant like claude. no accounts, no cloud, no tracking. your data never leaves your machine.
+a local, private life dashboard — **calendar · appointments · achievements · todos** — that an
+llm can read and write too. one set of plain json files on your disk, two doors into them: a
+vanilla web ui for you, and an [mcp](https://modelcontextprotocol.io) server for an assistant
+like claude. no accounts, no cloud, no tracking. your data never leaves your machine.
 
 ![the today view — appointments, todos due, today's wins, and your streak at a glance](docs/today.png)
 
@@ -13,7 +13,7 @@ assistant like claude. no accounts, no cloud, no tracking. your data never leave
 - **square, terminal-styled ui** — light + dark, eight accent colors, keyboard-first (vim keys).
 - **read-only `.ics` feed** — subscribe from your phone, see appointments + due todos there.
 - **mcp server** — let an assistant log your wins, add todos, and review your day (one optional dep).
-- **bulletproof storage** — atomic writes, cross-process lock, corrupt-file-safe. tested.
+- **crash-safe storage** — atomic writes, cross-process lock, corrupt-file-safe.
 
 ## quick start
 
@@ -77,7 +77,7 @@ immediately. (works with any mcp client — claude desktop, claude code, etc.)
 
 ## use it from your phone
 
-the simplest, most robust way — no second calendar, nothing to sync: run lifeplanner on
+the simplest way — no second calendar, nothing to sync: run lifeplanner on
 a machine that's reachable, and open it in your phone's browser over your **private
 network** (a LAN, or a mesh vpn like [tailscale](https://tailscale.com)). it's the same
 app — an appointment you add on your phone goes straight into the one store and shows up
