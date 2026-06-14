@@ -14,7 +14,7 @@ assistant like claude. no accounts, no cloud, no tracking. your data never leave
 ## quick start
 
 ```sh
-git clone <repo> lifeplanner && cd lifeplanner
+git clone https://github.com/mellen9999/lifeplanner.git && cd lifeplanner
 ./launch.sh            # or: python3 app.pyw
 ```
 
@@ -45,11 +45,11 @@ saving — it's written to disk the moment you add it.
 
 | keys | action | | keys | action |
 |---|---|---|---|---|
-| `1` … `5` | switch section | | `h` / `l` | prev / next month |
-| `n` | new item | | `e` / dbl-click | edit selected |
-| `j` / `k` | move selection | | `enter` | save edit / open day |
-| `x` | toggle todo done | | `t` | toggle light / dark |
-| `d` `d` | delete selected | | `r` · `?` | refresh · help |
+| `1` … `5` | switch section | | `h` `j` `k` `l` | calendar: move day in grid |
+| `n` | new item | | `H` / `L` | calendar: jump month |
+| `j` / `k` | move selection (lists) | | `e` / dbl-click | edit selected |
+| `x` | toggle todo done | | `enter` | save edit / open day |
+| `d` `d` | delete selected | | `t` · `r` · `?` | theme · refresh · help |
 
 theme and accent are saved with your data.
 
