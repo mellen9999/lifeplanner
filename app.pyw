@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import store
+import review
 
 # all configurable for portability; safe localhost defaults.
 HOST = os.environ.get("LIFEPLANNER_HOST", "127.0.0.1")
@@ -136,6 +137,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"version": store.version()})
         if path == "/api/settings":
             return self._json(200, store.get_settings())
+        if path == "/api/slipping":
+            return self._json(200, review.whats_slipping())
+        if path == "/api/review":
+            try:
+                days = int(parse_qs(urlparse(self.path).query).get("days", ["7"])[0])
+            except (TypeError, ValueError):
+                days = 7
+            return self._json(200, review.review(days))
         if path == "/api/export":
             disp = 'attachment; filename="lifeplanner-export.zip"'
             # HEAD must not build the zip (it takes the lock + reads every file)

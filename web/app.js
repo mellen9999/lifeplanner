@@ -18,6 +18,8 @@ const REPEAT_OPTIONS = [
 ];
 
 let state = { achievements: [], todos: [], appointments: [], settings: {}, version: "" };
+let slipping = null;   // cached /api/slipping response
+let weekReview = null; // cached /api/review?days=7 response
 let view = "today";
 let sel = -1;                 // selected list index in current section
 let editing = null;           // id of the item being edited inline
@@ -134,7 +136,20 @@ async function refresh() {
     return;
   }
   applyTheme();
+  // fetch planning-partner data in parallel; failures are non-fatal (stale cache ok)
+  if (view === "today") await refreshPlannerData();
   render();
+}
+
+async function refreshPlannerData() {
+  try {
+    [slipping, weekReview] = await Promise.all([
+      api("GET", "/api/slipping"),
+      api("GET", "/api/review?days=7"),
+    ]);
+  } catch (e) {
+    // silently keep whatever was cached; the blocks will render with stale data
+  }
 }
 
 async function add(entity, data) {
@@ -261,7 +276,7 @@ function setView(v) {
   closeSearch(false);
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.view === v));
   document.querySelectorAll(".view").forEach(s => s.classList.toggle("active", s.id === v));
-  render();
+  if (v === "today") { refreshPlannerData().then(render); } else { render(); }
 }
 
 function currentList() {
@@ -494,6 +509,104 @@ function mountList(container, items, builder, emptyMsg) {
   container.appendChild(list);
 }
 
+// ---- planning partner blocks -----------------------------------------------
+
+function renderSlipping() {
+  const d = slipping;
+  const wrap = el("div", "pp-block");
+
+  if (!d) return wrap; // not yet loaded
+
+  const overdue = d.overdue_todos || [];
+  const stale = d.stale_todos || [];
+  const dsw = d.days_since_win;
+
+  // win gap line
+  const winLine = el("div", "pp-row");
+  const winMk = el("span", "mk ach");
+  let winText;
+  if (dsw === null || dsw === undefined) winText = "no wins logged yet";
+  else if (dsw === 0) winText = "logged a win today";
+  else winText = `${dsw}d since last win`;
+  winLine.append(winMk, el("span", null, winText));
+  wrap.appendChild(winLine);
+
+  if (!overdue.length && !stale.length) {
+    const ok = el("div", "pp-row pp-ok");
+    ok.appendChild(el("span", "mk ach"));
+    ok.appendChild(el("span", null, "nothing slipping"));
+    wrap.appendChild(ok);
+    return wrap;
+  }
+
+  if (overdue.length) {
+    const hdr = el("div", "pp-hdr");
+    hdr.appendChild(el("span", "pp-badge pp-red", String(overdue.length)));
+    hdr.appendChild(el("span", null, " overdue"));
+    wrap.appendChild(hdr);
+    overdue.forEach(t => {
+      const row = el("div", "pp-row pp-overdue");
+      row.appendChild(el("span", "mk todo"));
+      row.appendChild(el("span", "pp-title", t.title));
+      row.appendChild(el("span", "pp-meta", `${t.days_late}d late`));
+      wrap.appendChild(row);
+    });
+  }
+
+  if (stale.length) {
+    const hdr = el("div", "pp-hdr");
+    hdr.appendChild(el("span", "pp-badge pp-yellow", String(stale.length)));
+    hdr.appendChild(el("span", null, " stale"));
+    wrap.appendChild(hdr);
+    stale.forEach(t => {
+      const row = el("div", "pp-row pp-stale");
+      row.appendChild(el("span", "mk todo"));
+      row.appendChild(el("span", "pp-title", t.title));
+      row.appendChild(el("span", "pp-meta", `${t.age_days}d old`));
+      wrap.appendChild(row);
+    });
+  }
+
+  return wrap;
+}
+
+function renderWeekRecap() {
+  const d = weekReview;
+  const wrap = el("div", "pp-recap");
+
+  if (!d) return wrap;
+
+  const rate = d.completion_rate != null
+    ? `${Math.round(d.completion_rate * 100)}%`
+    : "—";
+  const xy = `${d.completed_due ?? 0}/${d.due_in_window ?? 0} done`;
+  const winsCount = d.wins_count ?? 0;
+  const busiest = d.busiest_day;
+
+  const row = el("div", "pp-recap-row");
+
+  const rateEl = el("span", "pp-recap-item");
+  rateEl.appendChild(el("span", "pp-recap-n", rate));
+  rateEl.appendChild(el("span", "pp-recap-l", ` ${xy}`));
+  row.appendChild(rateEl);
+
+  const winsEl = el("span", "pp-recap-item");
+  winsEl.appendChild(el("span", "pp-recap-n", String(winsCount)));
+  winsEl.appendChild(el("span", "pp-recap-l", " wins"));
+  row.appendChild(winsEl);
+
+  if (busiest) {
+    const busyEl = el("span", "pp-recap-item");
+    busyEl.appendChild(el("span", "pp-recap-l", `busiest: `));
+    busyEl.appendChild(el("span", "pp-recap-n", busiest.date.slice(5)));
+    busyEl.appendChild(el("span", "pp-recap-l", ` (${busiest.items})`));
+    row.appendChild(busyEl);
+  }
+
+  wrap.appendChild(row);
+  return wrap;
+}
+
 // ---- today / agenda ---------------------------------------------------------
 
 function renderToday() {
@@ -503,6 +616,18 @@ function renderToday() {
   const now = new Date();
   const head = el("h2", "section-h", `today — ${MONTHS[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`);
   root.appendChild(head);
+
+  // planning partner: needs-attention + week recap
+  const ppWrap = el("div", "pp-wrap");
+  const ppAttn = el("div", "pp-section");
+  ppAttn.appendChild(el("div", "pp-label", "needs attention"));
+  ppAttn.appendChild(renderSlipping());
+  ppWrap.appendChild(ppAttn);
+  const ppRecap = el("div", "pp-section");
+  ppRecap.appendChild(el("div", "pp-label", "this week"));
+  ppRecap.appendChild(renderWeekRecap());
+  ppWrap.appendChild(ppRecap);
+  root.appendChild(ppWrap);
 
   const grid = el("div", "agenda");
 
