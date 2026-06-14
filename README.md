@@ -5,7 +5,7 @@ llm can read and write too. one set of plain json files on your disk, two doors 
 vanilla web ui for you, and an [mcp](https://modelcontextprotocol.io) server for an assistant
 like claude. no accounts, no cloud, no tracking. your data never leaves your machine.
 
-![the today view — appointments, todos due, today's wins, and your streak at a glance](docs/today.png)
+![the today view — what needs attention and this week's recap up top, then appointments, todos due, today's wins, and your streak](docs/today.png)
 
 ![the month calendar — appointments, due todos, and logged wins on one grid, with a day panel](docs/calendar.png)
 
