@@ -67,7 +67,7 @@ ENTITIES = ("achievements", "todos", "appointments")
 # stray ui/llm key can't pollute stored items. id/created are never patchable.
 PATCHABLE = {
     "achievements": ("title", "date", "note"),
-    "todos": ("title", "done", "due"),
+    "todos": ("title", "done", "due", "recur"),
     "appointments": ("title", "when", "location", "note", "recur"),
 }
 RECUR_FREQS = ("daily", "weekly", "monthly")
@@ -248,8 +248,15 @@ def _normalize(name, item):
             base[key] = _coerce(name, key, item.get(key))
     # done_at is server-stamped (not client-patchable), but keep the key present
     # so the stored shape is uniform — and carry it through an undo-restore.
+    # done_dates tracks per-day completion of a *recurring* todo (a routine like
+    # "workout" is done on specific dates, never globally) — validated, deduped.
     if name == "todos":
         base["done_at"] = str(item.get("done_at") or "")
+        base["done_dates"] = _valid_dates(item.get("done_dates"))
+        # a routine needs a `due` anchor to recur from — without one it would never
+        # produce an occurrence. default it to today so "repeat" always works.
+        if base.get("recur") and not base.get("due"):
+            base["due"] = date.today().isoformat()
     return base
 
 
@@ -282,9 +289,14 @@ def update_item(name, item_id, patch):
                 for k, v in patch.items():
                     if k in allowed:
                         it[k] = _coerce(name, k, v)
-                # stamp when a todo was completed (cleared if reopened) so the ui
-                # can show it and "what did i finish this week" is answerable.
-                if name == "todos" and "done" in patch:
+                if name == "todos" and it.get("recur"):
+                    # a recurring todo's completion is per-date (done_dates), set via
+                    # set_todo_done — the global done flag never applies to a routine,
+                    # so retire it here (covers a one-off edited into a routine too).
+                    it["done"], it["done_at"] = False, ""
+                elif name == "todos" and "done" in patch:
+                    # stamp when a one-off todo was completed (cleared if reopened) so
+                    # the ui can show it and "what did i finish" is answerable.
                     it["done_at"] = date.today().isoformat() if it.get("done") else ""
                 found = it
                 break
@@ -293,6 +305,28 @@ def update_item(name, item_id, patch):
         _write_raw(name, items)
         _regen_ics_locked()
     return found
+
+
+def set_todo_done(item_id, on_date, done):
+    """mark a todo complete/incomplete. a recurring todo (routine) records the date
+    in done_dates so each day stands alone; a one-off uses the global done flag.
+    on_date defaults to today. returns the updated item, or None if not found."""
+    day = _norm_date(on_date) if on_date else date.today().isoformat()
+    with FileLock():
+        items = list_items("todos")
+        t = next((x for x in items if x.get("id") == item_id), None)
+        if t is None:
+            return None
+        if t.get("recur"):
+            dd = set(_valid_dates(t.get("done_dates")))
+            dd.add(day) if done else dd.discard(day)
+            t["done_dates"] = sorted(dd)
+        else:
+            t["done"] = bool(done)
+            t["done_at"] = date.today().isoformat() if done else ""
+        _write_raw("todos", items)
+        _regen_ics_locked()
+    return t
 
 
 def _caldav_update(item_id, patch):
@@ -368,6 +402,19 @@ def _norm_date(s):
         return date.today().isoformat()
 
 
+def _valid_dates(seq):
+    """sorted, deduped set of valid YYYY-MM-DD from a loose list — anything
+    unparseable is dropped (never coerced to today, which would forge completions)."""
+    out = set()
+    for x in (seq or []):
+        if isinstance(x, str):
+            try:
+                out.add(date.fromisoformat(x[:10]).isoformat())
+            except ValueError:
+                pass
+    return sorted(out)
+
+
 def _norm_when(s):
     """accept 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM' / 'YYYY-MM-DDTHH:MM'. keep time if present."""
     if not s:
@@ -418,12 +465,12 @@ def _norm_recur(r):
     return {"freq": freq, "interval": interval, "until": until}
 
 
-def occurrences_in(appt, start_iso, end_iso):
-    """when-strings for every time this appointment falls within [start, end]
-    (inclusive). non-recurring → its single date if in range. preserves time.
-    monthly follows RRULE semantics: anchors on the start day and skips months
-    that lack it (jan 31 → mar 31, no feb) so the app matches the phone .ics."""
-    when = appt.get("when", "")
+def _occurrences(when, recur, start_iso, end_iso):
+    """when-strings for every time the (anchor `when`, `recur`) series falls within
+    [start, end] inclusive. non-recurring → its single date if in range. preserves
+    any time component. monthly follows RRULE semantics: anchors on the start day
+    and skips months that lack it (jan 31 → mar 31, no feb) so the app matches the
+    phone .ics. shared by appointments (anchor=when) and todos (anchor=due)."""
     if not when:
         return []
     try:
@@ -433,7 +480,6 @@ def occurrences_in(appt, start_iso, end_iso):
     except ValueError:
         return []
     time_part = when[10:]  # "" for all-day, else "THH:MM"
-    recur = appt.get("recur") or ""
     if not recur:
         return [when] if start <= anchor <= end else []
     freq, interval = recur["freq"], max(1, recur.get("interval", 1))
@@ -460,6 +506,25 @@ def occurrences_in(appt, start_iso, end_iso):
                 out.append(d.isoformat() + time_part)
             d += step
     return out
+
+
+def occurrences_in(appt, start_iso, end_iso):
+    """appointment occurrences in [start, end] — anchored on its `when`."""
+    return _occurrences(appt.get("when", ""), appt.get("recur") or "", start_iso, end_iso)
+
+
+def todo_occurrences(todo, start_iso, end_iso):
+    """todo due-dates in [start, end] — anchored on its `due`. a recurring todo
+    (a routine) expands to every occurrence; a one-off resolves to its single due."""
+    return _occurrences(todo.get("due", ""), todo.get("recur") or "", start_iso, end_iso)
+
+
+def todo_done_on(todo, day_iso):
+    """is this todo complete for the given date? recurring → that date is in
+    done_dates; one-off → the global done flag (date ignored)."""
+    if todo.get("recur"):
+        return day_iso in (todo.get("done_dates") or [])
+    return bool(todo.get("done"))
 
 
 def next_occurrence(appt, on_or_after_iso):
@@ -523,10 +588,17 @@ def days(start, end):
     for a in list_items("appointments"):
         for w in occurrences_in(a, s, e):
             slot(w[:10])["appointments"].append({**a, "when": w})
+    # recurring todos (routines) expand to every occurrence in range, each tagged
+    # with its occurrence date (`due`) + whether it's done on that day, so the ui
+    # can render and tick the right instance. one-off todos drop on their due.
     for t in list_items("todos"):
-        due = t.get("due")
-        if due and s <= due <= e:
-            slot(due)["todos"].append(t)
+        if t.get("recur"):
+            for d in todo_occurrences(t, s, e):
+                slot(d[:10])["todos"].append({**t, "due": d[:10], "done": d[:10] in (t.get("done_dates") or [])})
+        else:
+            due = t.get("due")
+            if due and s <= due <= e:
+                slot(due)["todos"].append(t)
     for a in list_items("achievements"):
         dt = a.get("date")
         if dt and s <= dt <= e:
@@ -618,13 +690,17 @@ def build_ics():
                        ap.get("recur", ""))
     for td in list_items("todos"):
         due = td.get("due", "")
-        if not due or td.get("done"):
+        recur = td.get("recur") or ""
+        # one-off: skip if undated or done. recurring (routine): always emit as a
+        # repeating all-day event so the phone calendar shows it every day (per-day
+        # completion isn't expressible in a feed, so the series is shown in full).
+        if not due or (not recur and td.get("done")):
             continue
         try:
-            dt = date.fromisoformat(due)
+            dt = date.fromisoformat(due[:10])
         except ValueError:
             continue
-        out += _vevent(td.get("id", ""), "todo: " + td.get("title", ""), dt, True, "", "")
+        out += _vevent(td.get("id", ""), "todo: " + td.get("title", ""), dt, True, "", "", recur)
     out.append("END:VCALENDAR")
     return "\r\n".join(out) + "\r\n"
 

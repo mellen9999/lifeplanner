@@ -196,6 +196,12 @@ class Handler(BaseHTTPRequestHandler):
         data = self._body()
         if data is None:
             return self._json(400, {"error": "bad json"})
+        # completing a todo goes through set_todo_done so a recurring routine is
+        # ticked for one date (done_dates), not flipped globally. optional "date"
+        # (defaults today) picks which occurrence. field edits still use update_item.
+        if entity == "todos" and "done" in data:
+            item = store.set_todo_done(item_id, data.get("date", ""), bool(data["done"]))
+            return self._json(200, item) if item else self._json(404, {"error": "not found"})
         try:
             item = store.update_item(entity, item_id, data)
         except store.SyncError:

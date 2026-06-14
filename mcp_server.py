@@ -137,15 +137,27 @@ def add_achievement(title: str, date: str = "", note: str = "") -> dict:
 
 
 @mcp.tool()
-def add_todo(title: str, due: str = "") -> dict:
-    """add a todo. optional due date (YYYY-MM-DD) makes it a reminder + puts it on the calendar."""
-    return store.add_item("todos", {"title": title, "due": due})
+def add_todo(title: str, due: str = "", recur: str = "", interval: int = 1,
+             until: str = "") -> dict:
+    """add a todo. optional due date (YYYY-MM-DD) makes it a reminder + puts it on
+    the calendar. to make it a repeating routine (e.g. 'workout', 'take meds'), set
+    recur = 'daily' | 'weekly' | 'monthly' (+ interval, e.g. weekly interval=2 = every
+    other week); due is the first/anchor date (defaults today). a routine shows up
+    every occurrence and is checked off per-day, so it comes back the next day.
+    until = 'YYYY-MM-DD' optionally caps the repeat."""
+    item = {"title": title, "due": due}
+    r = _recur(recur, interval, until)
+    if r:
+        item["recur"] = r
+    return store.add_item("todos", item)
 
 
 @mcp.tool()
-def complete_todo(todo_id: str) -> dict:
-    """mark a todo done by id."""
-    item = store.update_item("todos", todo_id, {"done": True})
+def complete_todo(todo_id: str, date: str = "") -> dict:
+    """mark a todo done by id. for a one-off this completes it; for a repeating
+    routine this ticks a single day — date (YYYY-MM-DD) picks which, defaulting to
+    today — so the routine reappears the next day."""
+    item = store.set_todo_done(todo_id, date, True)
     return item or {"error": "todo not found", "id": todo_id}
 
 
@@ -203,13 +215,18 @@ def update_appointment(item_id: str, title: str = "", when: str = "",
 
 
 @mcp.tool()
-def update_todo(item_id: str, title: str = "", due: str = "") -> dict:
-    """edit a todo by id (retitle or change/clear its due date). pass due='none' to clear it."""
+def update_todo(item_id: str, title: str = "", due: str = "",
+                recur: str = "", interval: int = 1, until: str = "") -> dict:
+    """edit a todo by id: retitle, change/clear its due date, or turn repeating on/off.
+    pass due='none' to clear it. recur = 'daily'|'weekly'|'monthly' (+ interval) makes
+    it a routine; recur='none' makes it a one-off again. until caps the repeat."""
     patch = {}
     if title:
         patch["title"] = title
     if due:
         patch["due"] = "" if due.lower() == "none" else due
+    if recur:
+        patch["recur"] = "" if recur.lower() == "none" else _recur(recur, interval, until)
     return store.update_item("todos", item_id, patch) or {"error": "not found", "id": item_id}
 
 

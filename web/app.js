@@ -114,6 +114,19 @@ function recurLabel(r, anchorIso) {
   return r.until ? `${base} · until ${r.until}` : base;
 }
 
+// recurring todos (routines) are completed per-day; one-off todos use a global flag.
+// these mirror store.todo_done_on / todo_occurrences (anchor = the todo's `due`).
+function todoDoneOn(t, dateIso) { return t.recur ? (t.done_dates || []).includes(dateIso) : !!t.done; }
+function todoOccursOn(t, dateIso) {
+  return t.recur ? apptOccurrences({ when: t.due, recur: t.recur }, dateIso, dateIso).length > 0
+    : t.due === dateIso;
+}
+// toggle completion for the relevant date: a routine ticks that one day, a one-off flips.
+function toggleTodo(t, dateIso) {
+  if (t.recur) patch("todos", t.id, { done: !todoDoneOn(t, dateIso), date: dateIso });
+  else patch("todos", t.id, { done: !t.done });
+}
+
 // ---- api --------------------------------------------------------------------
 
 const TOKEN = document.querySelector('meta[name="lp-token"]')?.content || "";
@@ -417,7 +430,8 @@ function listRow(item, entity, parts, opts = {}) {
   const row = el("div", "row" + (opts.done ? " done" : ""));
   row.dataset.id = item.id;
   if (opts.tick) {
-    row.appendChild(tickEl(item.done, () => patch("todos", item.id, { done: !item.done })));
+    const dd = opts.tickDate || todayIso();  // which day's completion this tick toggles
+    row.appendChild(tickEl(todoDoneOn(item, dd), () => toggleTodo(item, dd)));
   }
   parts.forEach(p => row.appendChild(p));
   const editBtn = el("span", "rowedit", "edit");
@@ -484,6 +498,8 @@ function editFields(entity, item) {
   return [ // todos
     { name: "title", cls: "title", value: item.title },
     { name: "due", type: "date", value: item.due },
+    { name: "repeat", type: "select", value: repeatValue(item.recur), options: REPEAT_OPTIONS },
+    { name: "until", type: "date", value: (item.recur && item.recur.until) || "" },
   ];
 }
 
@@ -492,7 +508,7 @@ function buildPatch(entity, v) {
     return { title: v.title, when: v.time ? `${v.date} ${v.time}` : v.date, location: v.location, recur: parseRepeat(v.repeat, v.until) };
   if (entity === "achievements")
     return { title: v.title, date: v.date, note: v.note };
-  return { title: v.title, due: v.due };
+  return { title: v.title, due: v.due, recur: parseRepeat(v.repeat, v.until) };
 }
 
 function focusEdit(entity) {
@@ -644,13 +660,15 @@ function renderToday() {
     ? appts.map(a => agendaLine("appt", (timeOf(a.when) ? timeOf(a.when) + "  " : "") + a.title, a.location))
     : [el("div", "muted small", "nothing scheduled")]));
 
-  // todos: overdue + due today
-  const overdue = state.todos.filter(x => !x.done && x.due && x.due < t)
+  // todos: overdue one-offs, due-today one-offs, and today's routines (recurring)
+  const overdue = state.todos.filter(x => !x.recur && !x.done && x.due && x.due < t)
     .sort((a, b) => (a.due > b.due ? 1 : -1));
-  const dueToday = state.todos.filter(x => !x.done && x.due === t);
+  const dueToday = state.todos.filter(x => !x.recur && !x.done && x.due === t);
+  const routines = state.todos.filter(x => x.recur && todoOccursOn(x, t));
   const todoLines = [];
   overdue.forEach(x => todoLines.push(agendaTodo(x, `overdue · ${x.due}`)));
   dueToday.forEach(x => todoLines.push(agendaTodo(x, "due today")));
+  routines.forEach(x => todoLines.push(agendaTodo(x, "routine")));
   grid.appendChild(agendaCard("todos due", todoLines.length ? todoLines
     : [el("div", "muted small", "nothing due — nice")]));
 
@@ -699,8 +717,10 @@ function agendaLine(kind, text, sub) {
   return li;
 }
 function agendaTodo(x, label) {
-  const li = el("div", "li" + (label.startsWith("overdue") ? " overdue" : ""));
-  li.appendChild(tickEl(false, () => patch("todos", x.id, { done: true })));
+  const ti = todayIso();
+  const doneNow = todoDoneOn(x, ti);  // routine → done today; one-off → global flag
+  const li = el("div", "li" + (label.startsWith("overdue") ? " overdue" : "") + (doneNow ? " done" : ""));
+  li.appendChild(tickEl(doneNow, () => toggleTodo(x, ti)));
   const body = el("div");
   body.appendChild(el("span", null, x.title));
   body.appendChild(el("div", "sub", label));
@@ -943,13 +963,23 @@ function renderTodos() {
   root.appendChild(addRow([
     { name: "title", ph: "to do", cls: "title" },
     { name: "due", type: "date" },
-  ], d => add("todos", d)));
+    { name: "repeat", type: "select", options: REPEAT_OPTIONS },
+    { name: "until", type: "date" },
+  ], d => add("todos", { title: d.title, due: d.due, recur: parseRepeat(d.repeat, d.until) })));
   const body = el("div");
-  mountList(body, applySearch(visibleTodos()), (t) => listRow(t, "todos", [
-    el("span", "when", t.due ? t.due : "—"),
-    buildBody(t.title, t.done ? (t.done_at ? `done ${t.done_at}` : "done")
-      : (t.due && t.due < todayIso() ? "overdue" : "")),
-  ], { tick: true, done: t.done }), "nothing to do. press n to add.");
+  const ti = todayIso();
+  mountList(body, applySearch(visibleTodos()), (t) => {
+    // routines: when-col shows their next occurrence, sub shows the cadence, and the
+    // tick reflects *today*. one-off: due date + done/overdue sub, global tick.
+    const shown = t.recur ? (nextOccurrence({ when: t.due, recur: t.recur }, ti) || t.due) : t.due;
+    const sub = t.recur ? recurLabel(t.recur, t.due)
+      : (t.done ? (t.done_at ? `done ${t.done_at}` : "done")
+        : (t.due && t.due < ti ? "overdue" : ""));
+    return listRow(t, "todos", [
+      el("span", "when", shown ? shown.slice(0, 10) : "—"),
+      buildBody(t.title, sub),
+    ], { tick: true, tickDate: ti, done: t.recur ? todoDoneOn(t, ti) : t.done });
+  }, "nothing to do. press n to add.");
   root.appendChild(body);
 }
 
@@ -1021,8 +1051,8 @@ function renderDayPanel() {
   const items = [];
   state.appointments.forEach(a => apptOccurrences(a, selDay, selDay)
     .forEach(w => items.push(["appt", `${timeOf(w) ? timeOf(w) + " " : ""}${a.title}`.trim()])));
-  state.todos.filter(t => t.due === selDay)
-    .forEach(t => items.push(["todo", (t.done ? "✓ " : "") + t.title]));
+  state.todos.forEach(t => { if (todoOccursOn(t, selDay))
+    items.push(["todo", (todoDoneOn(t, selDay) ? "✓ " : "") + t.title]); });
   state.achievements.filter(a => a.date === selDay)
     .forEach(a => items.push(["ach", a.title]));
   if (!items.length) panel.appendChild(el("div", "muted small", "nothing on this day"));
@@ -1056,7 +1086,11 @@ function itemsByDay() {
   const to = addDays(iso(new Date(calCursor.getFullYear(), calCursor.getMonth() + 1, 0)), 7);
   state.appointments.forEach(a => apptOccurrences(a, from, to).forEach(w =>
     get(w.slice(0, 10)).appts.push({ when: w, time: timeOf(w), title: a.title })));
-  state.todos.forEach(t => { if (t.due) get(t.due).todos.push(t); });
+  state.todos.forEach(t => {
+    if (t.recur) apptOccurrences({ when: t.due, recur: t.recur }, from, to)
+      .forEach(w => { const ds = w.slice(0, 10); get(ds).todos.push({ ...t, due: ds, done: todoDoneOn(t, ds) }); });
+    else if (t.due) get(t.due).todos.push(t);
+  });
   state.achievements.forEach(a => { if (a.date) get(a.date).wins.push(a); });
   Object.values(m).forEach(d => d.appts.sort((a, b) => (a.when > b.when ? 1 : -1)));
   return m;
@@ -1203,7 +1237,7 @@ function toggleSelTodo() {
   const row = document.querySelector("#todos .row.sel");
   if (!row) return;
   const t = state.todos.find(x => x.id === row.dataset.id);
-  if (t) patch("todos", t.id, { done: !t.done });
+  if (t) toggleTodo(t, todayIso());  // routine → toggles today; one-off → flips
 }
 
 async function deleteSel() {

@@ -39,10 +39,13 @@ def whats_slipping(today=None, stale_after=14, horizon=2):
     judgement — claude reads the gaps and decides what's urgent."""
     today = _today(today)
     iso = today.isoformat()
-    open_t = _open(store.list_items("todos"))
+    todos = store.list_items("todos")
+    # routines (recurring todos) are never "overdue" or "stale" — a missed day isn't
+    # a deadline slipping, it's just a day. they surface as today's checklist instead.
+    one_off = _open([t for t in todos if not t.get("recur")])
 
     overdue = []
-    for t in open_t:
+    for t in one_off:
         due = t.get("due")
         if due and due < iso:
             try:
@@ -53,7 +56,7 @@ def whats_slipping(today=None, stale_after=14, horizon=2):
 
     stale = []
     cutoff = (today - timedelta(days=stale_after)).isoformat()
-    for t in open_t:
+    for t in one_off:
         if t.get("due"):
             continue
         created = (t.get("created") or "")[:10]
@@ -63,6 +66,12 @@ def whats_slipping(today=None, stale_after=14, horizon=2):
             except ValueError:
                 pass
     stale.sort(key=lambda t: t["age_days"], reverse=True)
+
+    # today's routines still to do — recurring todos due today, not yet ticked
+    routines = [{"id": t.get("id"), "title": t.get("title", "")}
+                for t in todos if t.get("recur")
+                and store.todo_occurrences(t, iso, iso)
+                and not store.todo_done_on(t, iso)]
 
     last_win, days_since = _last_win(today)
 
@@ -80,6 +89,7 @@ def whats_slipping(today=None, stale_after=14, horizon=2):
         "today": iso,
         "overdue_todos": overdue,
         "stale_todos": stale,
+        "routines_today": routines,
         "last_win_date": last_win,
         "days_since_win": days_since,
         "next_load": upcoming,
@@ -108,11 +118,17 @@ def review(days=7, today=None):
     s, e = start.isoformat(), today.isoformat()
 
     todos = store.list_items("todos")
-    due_in = [t for t in todos if t.get("due") and s <= t["due"] <= e]
+    # the completion rate is about *deadlines* — one-off dated todos only. routines
+    # (recurring) aren't deadlines, so they don't drag the rate up or down.
+    due_in = [t for t in todos if t.get("due") and not t.get("recur") and s <= t["due"] <= e]
     done_due = [t for t in due_in if t.get("done")]
     slipped = [t for t in due_in if not t.get("done")]
     # broader momentum: everything finished in-window, including undated todos.
-    completed = [t for t in todos if t.get("done") and s <= (t.get("done_at") or "") <= e]
+    completed = [t for t in todos if not t.get("recur") and t.get("done")
+                 and s <= (t.get("done_at") or "") <= e]
+    # routine momentum: how many routine-days got ticked across the window.
+    routine_done = sum(1 for t in todos if t.get("recur")
+                       for x in (t.get("done_dates") or []) if s <= x <= e)
 
     wins = [a for a in store.list_items("achievements")
             if a.get("date") and s <= a["date"] <= e]
@@ -132,6 +148,7 @@ def review(days=7, today=None):
         "completed_due": len(done_due),
         "completion_rate": round(len(done_due) / len(due_in), 2) if due_in else None,
         "wins_count": len(wins),
+        "routine_completions": routine_done,
         "busiest_day": _busiest(grid),
         "days_since_win": win_gap,
     }

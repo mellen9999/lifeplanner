@@ -11,6 +11,7 @@ like claude. no accounts, no cloud, no tracking. your data never leaves your mac
 
 - **stdlib-only web app** — python 3.8+, no dependencies. clone and run.
 - **square, terminal-styled ui** — light + dark, eight accent colors, keyboard-first (vim keys).
+- **routines** — todos can repeat (daily/weekly); a routine like "workout" shows every day and is ticked off per-day, so it's back tomorrow.
 - **works on your phone** — installable PWA over your private network; optional `.ics` / caldav export if you'd rather see appointments in a native calendar app.
 - **mcp server** — let an assistant log your wins, add todos, flag what's slipping, and review your week (one optional dep).
 - **it reaches out** — optional push that nudges you: a daily standup + weekly review, with overdue
@@ -49,6 +50,9 @@ five sections (number keys switch them):
    to keep the run alive, but miss with no shields left and the streak resets to 0 — the shields are
    shown so the grace is never hidden. log small wins often; watching the streak grow is the point.
 5. **todos** — things to do; give one a due date and it becomes a reminder on the calendar + phone.
+   set **repeat** on one to make it a daily/weekly **routine** (eat lunch, workout, meds) — it shows up
+   every day in "todos due" and you tick it off per-day, so it's back tomorrow. routines never count as
+   "overdue" (a missed day is just a day), and the streak of completions is yours to keep.
 
 every item can be edited in place (`e` or double-click) or deleted (`×` / `d d`, undo with `u`).
 nothing needs saving — it's written to disk the moment you add it.
