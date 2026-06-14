@@ -10,7 +10,7 @@
 
 /* dark = pure black surfaces (no #0a–#44 smudge), visible mid-gray lines */
 html[data-theme="dark"] {
-  --bg: #000; --fg: #e4e4e4; --muted: #8a8a8a; --line: #5a5a5a;
+  --bg: #000; --fg: #e4e4e4; --muted: #a0a0a0; --line: #5a5a5a;
   --row: #000; --inv-bg: #fff; --inv-fg: #000; --field: #000;
 }
 html[data-theme="light"] {
@@ -71,6 +71,11 @@ body {
   .tab .k { margin-right: 6px; }
   /* tools drop to their own row, left-aligned, always fully visible */
   #tools { flex: 1 1 100%; justify-content: flex-start; padding: 6px 12px; gap: 12px; }
+  /* fatter touch targets for the row actions (desktop density stays untouched) */
+  .row .del, .row .rowedit { padding: 4px 12px; }
+  /* stop date/time pickers collapsing to unusable slivers in the wrapped add-row */
+  .add input[type="date"] { flex: 0 0 auto; min-width: 130px; }
+  .add input[type="time"] { flex: 0 0 auto; min-width: 92px; }
 }
 
 /* ---- views ---- */
@@ -112,8 +117,9 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .row:hover .muted, .row.sel .muted,
 .row:hover .when, .row.sel .when { color: var(--inv-fg); }
 .row .when { color: var(--muted); flex: 0 0 auto; min-width: 116px; font-variant-numeric: tabular-nums; }
-.row .body { flex: 1 1 auto; }
-.row .title { }
+.row .body { flex: 1 1 auto; min-width: 0; }
+/* a long unbroken title (e.g. a pasted url) must wrap, not overflow the row */
+.row .title, .row .body { overflow-wrap: anywhere; }
 .row .sub { color: var(--muted); font-size: 13px; }
 .row .del { margin-left: auto; color: var(--muted); cursor: pointer; padding: 0 4px; }
 .row:hover .del:hover, .row.sel .del:hover { color: var(--inv-bg); background: var(--inv-fg); }
@@ -218,6 +224,10 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .quick button { font: inherit; background: var(--bg); color: var(--fg);
   border: 1px solid var(--fg); padding: 5px 12px; cursor: pointer; }
 .quick button:hover { background: var(--inv-bg); color: var(--inv-fg); }
+/* keep inputs square (mobile safari rounds them) + show focus everywhere */
+.quick input, #day-panel .quick input { border-radius: 0; }
+.quick input:focus, #day-panel .quick input:focus,
+.quick input.flash { outline: 2px solid var(--accent); }
 
 /* streak ribbon */
 .ribbon { display: flex; gap: 10px; margin: 12px 0; flex-wrap: wrap; }

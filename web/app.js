@@ -119,7 +119,13 @@ async function api(method, path, body) {
 }
 
 async function refresh() {
-  state = await api("GET", "/api/state");
+  try {
+    state = await api("GET", "/api/state");
+  } catch (e) {
+    // boot/manual refresh failure must not leave a silent blank app
+    toast("can't reach server — " + e.message);
+    return;
+  }
   applyTheme();
   render();
 }
@@ -173,7 +179,12 @@ function applyTheme() {
 }
 
 async function setSetting(patchObj) {
-  state.settings = await api("PUT", "/api/settings", patchObj);
+  try {
+    state.settings = await api("PUT", "/api/settings", patchObj);
+  } catch (e) {
+    toast("couldn't save — " + e.message);
+    return;
+  }
   applyTheme();
 }
 
@@ -199,6 +210,8 @@ function setView(v) {
   view = v;
   sel = -1;
   editing = null;
+  // a half-armed delete must never carry across views and hit the wrong row
+  pendingDelete = false;
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.view === v));
   document.querySelectorAll(".view").forEach(s => s.classList.toggle("active", s.id === v));
   render();
@@ -293,7 +306,9 @@ function tickEl(done, onToggle) {
   t.title = done ? "mark not done" : "mark done";
   t.setAttribute("role", "checkbox");
   t.setAttribute("aria-checked", done ? "true" : "false");
+  t.tabIndex = 0;  // keyboard-reachable (the only way to tick on the today view)
   t.onclick = (e) => { e.stopPropagation(); onToggle(); };
+  t.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onToggle(); } };
   return t;
 }
 
@@ -307,11 +322,20 @@ function listRow(item, entity, parts, opts = {}) {
   parts.forEach(p => row.appendChild(p));
   const editBtn = el("span", "rowedit", "edit");
   editBtn.title = "edit (e)";
-  editBtn.onclick = (e) => { e.stopPropagation(); editing = item.id; render(); focusEdit(entity); };
+  editBtn.setAttribute("role", "button");
+  editBtn.tabIndex = 0;
+  const doEdit = (e) => { e.stopPropagation(); editing = item.id; render(); focusEdit(entity); };
+  editBtn.onclick = doEdit;
+  editBtn.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); doEdit(e); } };
   row.appendChild(editBtn);
   const del = el("span", "del", "×");
   del.title = "delete";
-  del.onclick = (e) => { e.stopPropagation(); remove(entity, item.id); };
+  del.setAttribute("role", "button");
+  del.setAttribute("aria-label", "delete");
+  del.tabIndex = 0;
+  const doDel = (e) => { e.stopPropagation(); remove(entity, item.id); };
+  del.onclick = doDel;
+  del.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); doDel(e); } };
   row.appendChild(del);
   row.ondblclick = () => { editing = item.id; render(); focusEdit(entity); };
   return row;
@@ -530,6 +554,11 @@ function renderHeatmap() {
     grid.appendChild(col);
   }
   const wrap = el("div", "heatmap");
+  // colorblind/screen-reader fallback: the green scale isn't perceivable to all,
+  // so summarise the window (each cell still carries an exact title tooltip).
+  const total = Object.values(counts).reduce((s, n) => s + n, 0);
+  wrap.setAttribute("role", "img");
+  wrap.setAttribute("aria-label", `wins over the last ${WEEKS} weeks: ${total} total`);
   wrap.appendChild(grid);
   return wrap;
 }
@@ -695,13 +724,15 @@ function renderDayPanel() {
     li.appendChild(el("span", null, text));
     panel.appendChild(li);
   });
-  const q = el("div", "quick");
+  const q = el("form", "quick");
   const inp = el("input"); inp.placeholder = "+ appointment";
-  const b = el("button", null, "add");
-  const submit = () => { const v = inp.value.trim(); if (v) { add("appointments", { title: v, when: selDay }); inp.value = ""; } };
-  b.onclick = submit;
-  inp.onkeydown = (e) => { if (e.key === "Enter") submit(); };
+  const b = el("button", null, "add"); b.type = "submit";
   q.append(inp, b);
+  q.onsubmit = (e) => {
+    e.preventDefault();
+    const v = inp.value.trim();
+    if (v) { add("appointments", { title: v, when: selDay }); inp.value = ""; }
+  };
   panel.appendChild(q);
   return panel;
 }
@@ -856,10 +887,15 @@ function toggleSelTodo() {
   if (t) patch("todos", t.id, { done: !t.done });
 }
 
-function deleteSel() {
+async function deleteSel() {
   if (!["appointments", "achievements", "todos"].includes(view)) return;
   const row = document.querySelector(`#${view} .row.sel`);
-  if (row) remove(view, row.dataset.id);
+  if (!row) return;
+  const keep = sel;
+  await remove(view, row.dataset.id);
+  // keep the selection on the next row (or the new last one) instead of losing it
+  sel = Math.min(keep, currentList().length - 1);
+  render();
 }
 
 // ---- boot + polling ---------------------------------------------------------
