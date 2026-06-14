@@ -276,6 +276,10 @@ def update_item(name, item_id, patch):
                 for k, v in patch.items():
                     if k in allowed:
                         it[k] = _coerce(name, k, v)
+                # stamp when a todo was completed (cleared if reopened) so the ui
+                # can show it and "what did i finish this week" is answerable.
+                if name == "todos" and "done" in patch:
+                    it["done_at"] = date.today().isoformat() if it.get("done") else ""
                 found = it
                 break
         if found is None:

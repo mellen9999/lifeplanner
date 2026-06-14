@@ -26,6 +26,9 @@ let selDay = iso(new Date()); // selected calendar day
 let pendingDelete = false;    // first 'd' of 'dd'
 let showDone = false;         // todos: reveal the collapsed "done" pile
 try { showDone = localStorage.getItem("lp-show-done") === "1"; } catch {}
+let lastDeleted = null;       // {entity, item} for single-level undo
+let search = "";              // active filter query ("" = off)
+let searchOpen = false;       // filter bar visible
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -143,14 +146,35 @@ async function remove(entity, id) {
   catch (e) { toast(e.message); }
 }
 
+// delete with a one-shot undo. the atomic store + re-add make this safe: undo
+// re-creates the item from the stashed copy (a fresh id, same content).
+async function deleteWithUndo(entity, item) {
+  lastDeleted = { entity, item };
+  await remove(entity, item.id);
+  toast(`deleted "${item.title}"`, "undo (u)", undoDelete);
+}
+function undoDelete() {
+  if (!lastDeleted) return;
+  const { entity, item } = lastDeleted;
+  lastDeleted = null;
+  add(entity, item);
+  toast("restored");
+}
+
 // transient error/feedback line — failed actions are never silent
 let toastTimer = null;
-function toast(msg) {
+function toast(msg, actionLabel, actionFn) {
   const t = document.getElementById("toast");
-  t.textContent = msg;
+  clear(t);
+  t.appendChild(document.createTextNode(msg));
+  if (actionLabel && actionFn) {
+    const a = el("span", "toast-action", actionLabel);
+    a.onclick = () => { t.hidden = true; actionFn(); };
+    t.appendChild(a);
+  }
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, 3500);
+  toastTimer = setTimeout(() => { t.hidden = true; }, actionFn ? 7000 : 3500);
 }
 
 // honest staleness signal — when appointments come from cache (sync server
@@ -212,17 +236,28 @@ function setView(v) {
   editing = null;
   // a half-armed delete must never carry across views and hit the wrong row
   pendingDelete = false;
+  // a filter belongs to the list it was typed in — don't carry it across views
+  closeSearch(false);
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.view === v));
   document.querySelectorAll(".view").forEach(s => s.classList.toggle("active", s.id === v));
   render();
 }
 
 function currentList() {
-  if (view === "achievements") return state.achievements;
-  if (view === "todos") return visibleTodos();
-  if (view === "appointments") return state.appointments;
+  if (view === "achievements") return applySearch(state.achievements);
+  if (view === "todos") return applySearch(visibleTodos());
+  if (view === "appointments") return applySearch(state.appointments);
   return [];
 }
+
+// live text filter (the `/` search). matches title + the contextual fields so
+// "dentist", a date fragment, or a location all find what you'd expect.
+function matchesSearch(it) {
+  const q = search.toLowerCase();
+  return [it.title, it.note, it.location, it.due, it.date, it.when]
+    .some(f => (f || "").toLowerCase().includes(q));
+}
+function applySearch(items) { return search ? items.filter(matchesSearch) : items; }
 
 function sortedTodos() {
   return [...state.todos].sort((a, b) =>
@@ -245,6 +280,28 @@ function render() {
   renderAppointments();
   renderAchievements();
   renderTodos();
+  if (searchOpen) {
+    const n = currentList().length;
+    document.getElementById("search-count").textContent = `${n} match${n === 1 ? "" : "es"}`;
+  }
+}
+
+function openSearch() {
+  if (!["appointments", "achievements", "todos"].includes(view)) return;
+  searchOpen = true;
+  document.getElementById("searchbar").hidden = false;
+  const inp = document.getElementById("search-input");
+  inp.value = search;
+  render();
+  inp.focus(); inp.select();
+}
+// rerender=false when the caller (setView) will render anyway — avoids a double paint
+function closeSearch(rerender = true) {
+  if (!searchOpen && !search) return;
+  search = ""; searchOpen = false; sel = -1;
+  document.getElementById("searchbar").hidden = true;
+  document.getElementById("search-input").blur();
+  if (rerender) render();
 }
 
 // build one form control from a field spec (input or select). shared by the
@@ -333,7 +390,7 @@ function listRow(item, entity, parts, opts = {}) {
   del.setAttribute("role", "button");
   del.setAttribute("aria-label", "delete");
   del.tabIndex = 0;
-  const doDel = (e) => { e.stopPropagation(); remove(entity, item.id); };
+  const doDel = (e) => { e.stopPropagation(); deleteWithUndo(entity, item); };
   del.onclick = doDel;
   del.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); doDel(e); } };
   row.appendChild(del);
@@ -581,7 +638,7 @@ function renderAppointments() {
   const body = el("div");
   // recurring series show their next occurrence in the when column; the label
   // (e.g. "every other thu") makes the repetition explicit.
-  mountList(body, state.appointments, (a) => {
+  mountList(body, applySearch(state.appointments), (a) => {
     const rec = recurLabel(a.recur, (a.when || "").slice(0, 10));
     const shown = rec ? (nextOccurrence(a, todayIso()) || a.when) : a.when;
     const sub = [a.location, rec].filter(Boolean).join("  ·  ");
@@ -607,7 +664,7 @@ function renderAchievements() {
     { name: "note", ph: "note (optional)" },
   ], d => add("achievements", d)));
   const body = el("div");
-  mountList(body, state.achievements, (a) => listRow(a, "achievements", [
+  mountList(body, applySearch(state.achievements), (a) => listRow(a, "achievements", [
     el("span", "when", a.date),
     buildBody(a.title, a.note),
   ]), "no wins logged yet. log your first one — press n.");
@@ -638,9 +695,10 @@ function renderTodos() {
     { name: "due", type: "date" },
   ], d => add("todos", d)));
   const body = el("div");
-  mountList(body, visibleTodos(), (t) => listRow(t, "todos", [
+  mountList(body, applySearch(visibleTodos()), (t) => listRow(t, "todos", [
     el("span", "when", t.due ? t.due : "—"),
-    buildBody(t.title, t.due && !t.done && t.due < todayIso() ? "overdue" : ""),
+    buildBody(t.title, t.done ? (t.done_at ? `done ${t.done_at}` : "done")
+      : (t.due && t.due < todayIso() ? "overdue" : "")),
   ], { tick: true, done: t.done }), "nothing to do. press n to add.");
   root.appendChild(body);
 }
@@ -810,6 +868,22 @@ document.addEventListener("keydown", (e) => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
   const help = document.getElementById("help");
 
+  // search bar owns its own keys while focused: esc closes+clears, enter applies
+  // the filter and drops to the first match so j/k/dd act on the filtered list.
+  if (document.activeElement.id === "search-input") {
+    if (e.key === "Escape") { closeSearch(); return; }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      document.activeElement.blur();
+      if (currentList().length) {
+        sel = 0; render();
+        document.querySelector(`#${view} .row.sel`)?.scrollIntoView({ block: "nearest" });
+      }
+      return;
+    }
+    return;
+  }
+
   if (e.key === "Escape") {
     if (!help.hidden) { help.hidden = true; return; }
     if (editing) { editing = null; render(); return; }
@@ -832,6 +906,8 @@ document.addEventListener("keydown", (e) => {
     case "4": setView("achievements"); break;
     case "5": setView("todos"); break;
     case "n": e.preventDefault(); focusAdd(); break;
+    case "/": e.preventDefault(); openSearch(); break;
+    case "u": undoDelete(); break;
     case "e": e.preventDefault(); editSel(); break;
     case "Enter": e.preventDefault(); editSel(); break;
     case "t": toggleTheme(); break;
@@ -891,8 +967,10 @@ async function deleteSel() {
   if (!["appointments", "achievements", "todos"].includes(view)) return;
   const row = document.querySelector(`#${view} .row.sel`);
   if (!row) return;
+  const item = currentList().find(x => x.id === row.dataset.id);
+  if (!item) return;
   const keep = sel;
-  await remove(view, row.dataset.id);
+  await deleteWithUndo(view, item);
   // keep the selection on the next row (or the new last one) instead of losing it
   sel = Math.min(keep, currentList().length - 1);
   render();
@@ -905,6 +983,8 @@ function wireBar() {
   document.getElementById("theme-btn").onclick = toggleTheme;
   document.getElementById("help-btn").onclick = () => { const h = document.getElementById("help"); h.hidden = !h.hidden; };
   document.getElementById("help").onclick = (e) => { if (e.target.id === "help") e.target.hidden = true; };
+  const si = document.getElementById("search-input");
+  si.oninput = () => { search = si.value; sel = -1; render(); };
 }
 
 // kill load flash before the first fetch returns

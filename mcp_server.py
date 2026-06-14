@@ -191,6 +191,28 @@ def get_week() -> dict:
 
 
 @mcp.tool()
+def get_range(start: str, end: str) -> dict:
+    """everything between two dates inclusive (YYYY-MM-DD), grouped by date —
+    appointments, due todos, wins. use for retrospectives ('how did last week
+    go?') or reviewing a past period. capped at 60 days."""
+    try:
+        s, e = date.fromisoformat(start), date.fromisoformat(end)
+    except ValueError:
+        return {"error": "dates must be YYYY-MM-DD"}
+    if e < s:
+        s, e = e, s
+    if (e - s).days > 60:
+        return {"error": "range too wide (max 60 days)"}
+    out = {}
+    for i in range((e - s).days + 1):
+        d = (s + timedelta(days=i)).isoformat()
+        day = store.day(d)
+        if day["appointments"] or day["todos"] or day["achievements"]:
+            out[d] = day
+    return {"from": s.isoformat(), "to": e.isoformat(), "days": out}
+
+
+@mcp.tool()
 def delete_item(kind: str, item_id: str) -> dict:
     """delete an item. kind = achievements | todos | appointments."""
     if kind not in store.ENTITIES:

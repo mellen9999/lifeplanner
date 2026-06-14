@@ -260,6 +260,23 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
   padding: 8px 16px; font: 13px var(--mono); z-index: 20; max-width: 80%;
 }
 #toast[hidden] { display: none; }
+.toast-action { margin-left: 12px; color: var(--accent); cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px; }
+
+/* ---- filter bar (the `/` search) — vim/less style, pinned bottom ---- */
+#searchbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 15;
+  display: flex; align-items: center; gap: 8px; padding: 6px 12px;
+  background: var(--bg); border-top: 1px solid var(--accent);
+}
+#searchbar[hidden] { display: none; }
+#searchbar .sp { color: var(--accent); }
+#search-input {
+  flex: 1 1 auto; font: inherit; background: var(--field); color: var(--fg);
+  border: 1px solid var(--line); padding: 5px 8px; border-radius: 0;
+}
+#search-input:focus { outline: 2px solid var(--accent); }
+#search-count { color: var(--muted); flex: 0 0 auto; }
 
 /* ---- armed delete (first 'd' of 'dd') ---- */
 .row.arming, .row.sel.arming { background: #ff5f5f; color: #000; }

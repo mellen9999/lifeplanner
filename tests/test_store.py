@@ -258,6 +258,15 @@ class StoreTest(unittest.TestCase):
         occ = store.occurrences_in(a, "2026-01-01", "2026-12-31")
         self.assertEqual(occ, ["2026-01-15", "2026-04-15", "2026-07-15", "2026-10-15"])
 
+    def test_todo_done_at_stamped_and_cleared(self):
+        t = store.add_item("todos", {"title": "ship it"})
+        self.assertFalse(store.list_items("todos")[0].get("done_at"))
+        store.update_item("todos", t["id"], {"done": True})
+        self.assertEqual(store.list_items("todos")[0]["done_at"],
+                         date.today().isoformat())
+        store.update_item("todos", t["id"], {"done": False})
+        self.assertEqual(store.list_items("todos")[0]["done_at"], "")
+
     def test_monthly_feb29_skips_nonleap_feb(self):
         a = {"when": "2024-02-29", "recur": {"freq": "monthly", "interval": 1}}
         occ = store.occurrences_in(a, "2025-01-01", "2025-12-31")

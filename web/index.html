@@ -37,6 +37,8 @@
       <table>
         <tr><td>1 … 5</td><td>today · calendar · appointments · achievements · todos</td></tr>
         <tr><td>n</td><td>new item (focus add)</td></tr>
+        <tr><td>/</td><td>filter the current list</td></tr>
+        <tr><td>u</td><td>undo last delete</td></tr>
         <tr><td>h j k l</td><td>lists: j / k move selection · calendar: move day in grid</td></tr>
         <tr><td>H / L</td><td>calendar: jump prev / next month</td></tr>
         <tr><td>e / enter</td><td>edit selected item</td></tr>
@@ -50,6 +52,12 @@
       </table>
       <p class="muted small">closes on esc or ?</p>
     </div>
+  </div>
+
+  <div id="searchbar" hidden>
+    <span class="sp">/</span>
+    <input id="search-input" placeholder="filter" autocomplete="off" spellcheck="false">
+    <span id="search-count" class="count"></span>
   </div>
 
   <div id="toast" hidden></div>
