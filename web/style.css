@@ -58,6 +58,21 @@ body {
 }
 #theme-btn:hover, #help-btn:hover { background: var(--inv-bg); color: var(--inv-fg); }
 
+/* ---- phone: header stacks (tabs row + tools row) so nothing scrolls off ---- */
+@media (max-width: 760px) {
+  #bar { flex-wrap: wrap; }
+  /* tabs take the full first row; swipe horizontally if the words overrun */
+  #nav {
+    flex: 1 1 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; border-bottom: 1px solid var(--line);
+  }
+  #nav::-webkit-scrollbar { display: none; }
+  .tab { padding: 8px 13px; white-space: nowrap; }
+  .tab .k { margin-right: 6px; }
+  /* tools drop to their own row, left-aligned, always fully visible */
+  #tools { flex: 1 1 100%; justify-content: flex-start; padding: 6px 12px; gap: 12px; }
+}
+
 /* ---- views ---- */
 #main { flex: 1 1 auto; overflow: auto; }
 .view { display: none; padding: 14px 16px; }
