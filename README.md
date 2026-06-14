@@ -36,8 +36,9 @@ five sections (number keys switch them):
 2. **calendar** — month grid; click a day to see/add what's on it. colored marks: green = a win,
    blue = an appointment, yellow = a due todo.
 3. **appointments** — things at a time. add with a date (+ optional time) and place. set
-   **repeat** (daily / weekly / every-other-week / monthly) to make it recur — the list shows the
-   next occurrence, the calendar marks every one, and your phone gets it as a standard repeating event.
+   **repeat** (daily / weekly / every-other-week / monthly, with an optional end date) to make it
+   recur — the list shows the next occurrence, the calendar marks every one, and your phone gets it
+   as a standard repeating event.
 4. **achievements** — your wins log, with a contribution heatmap + an honest, arcade-style streak.
    each logged day extends it and every 7th banks a **shield** (max 3); a missed day spends a shield
    to keep the run alive, but miss with no shields left and the streak resets to 0 — the shields are
@@ -119,8 +120,8 @@ the simplest way — no second calendar, nothing to sync: run lifeplanner on
 a machine that's reachable, and open it in your phone's browser over your **private
 network** (a LAN, or a mesh vpn like [tailscale](https://tailscale.com)). it's the same
 app — an appointment you add on your phone goes straight into the one store and shows up
-on your desktop instantly. bookmark the url (add it to your home screen) and it behaves
-like an app. keep it private: a LAN or tailnet, never the public internet.
+on your desktop instantly. it's an installable PWA — "add to home screen" and it opens full-screen
+with its own icon, like a native app. keep it private: a LAN or tailnet, never the public internet.
 
 prefer your phone's **native** calendar app instead? two options below — a read-only
 feed, or full two-way sync.
