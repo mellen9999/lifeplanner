@@ -276,13 +276,17 @@ function setView(v) {
   closeSearch(false);
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.view === v));
   document.querySelectorAll(".view").forEach(s => s.classList.toggle("active", s.id === v));
+  // reflect the view in the url so it's deep-linkable / bookmarkable and a
+  // refresh (or the installed pwa) reopens where you were. guarded: the hashchange
+  // listener no-ops when the hash already matches the current view.
+  if (location.hash.slice(1) !== v) location.hash = v;
   if (v === "today") { refreshPlannerData().then(render); } else { render(); }
 }
 
 function currentList() {
   if (view === "achievements") return applySearch(state.achievements);
   if (view === "todos") return applySearch(visibleTodos());
-  if (view === "appointments") return applySearch(state.appointments);
+  if (view === "appointments") { const o = orderedAppointments(applySearch(state.appointments)); return [...o.up, ...o.past]; }
   return [];
 }
 
@@ -816,32 +820,83 @@ function renderHeatmap() {
 
 // ---- appointments / achievements / todos -----------------------------------
 
+// the full appointment add form — identical controls everywhere it's offered
+// (the appointments page AND the calendar day panel), pre-filled to a day. one
+// definition so the calendar's add can never drift from the appointments page's.
+function appointmentAddForm(defaultWhen) {
+  return addRow([
+    { name: "title", ph: "what", cls: "title" },
+    { name: "when", type: "date", value: defaultWhen },
+    { name: "time", type: "time" },
+    { name: "location", ph: "where (optional)" },
+    { name: "repeat", type: "select", options: REPEAT_OPTIONS },
+    { name: "until", type: "date" },
+  ], d => add("appointments", {
+    title: d.title, when: d.time ? `${d.when} ${d.time}` : d.when,
+    location: d.location, recur: parseRepeat(d.repeat, d.until),
+  }));
+}
+
+// split appointments into upcoming (next occurrence today-or-later, soonest
+// first) and past (one-time, already gone, most recent first). recurring series
+// resolve to their next hit. ONE ordering, shared by the view + keyboard nav so
+// j/k always lands on the row you see.
+function orderedAppointments(list) {
+  const today = todayIso();
+  const keyOf = a => {
+    const rec = a.recur && a.recur.freq;
+    return (rec ? (nextOccurrence(a, today) || a.when) : a.when) || "";
+  };
+  const up = [], past = [];
+  list.forEach(a => (keyOf(a) >= today ? up : past).push(a));
+  up.sort((x, y) => keyOf(x) < keyOf(y) ? -1 : 1);
+  past.sort((x, y) => keyOf(x) > keyOf(y) ? -1 : 1);
+  return { up, past };
+}
+
+function apptRow(a) {
+  const rec = recurLabel(a.recur, (a.when || "").slice(0, 10));
+  const shown = rec ? (nextOccurrence(a, todayIso()) || a.when) : a.when;
+  const sub = [a.location, rec].filter(Boolean).join("  ·  ");
+  return listRow(a, "appointments", [
+    el("span", "when", fmtWhen(shown)),
+    buildBody(a.title, sub),
+  ]);
+}
+
 function renderAppointments() {
   const root = document.getElementById("appointments");
   clear(root);
   const h = el("h2", "section-h", "appointments");
   h.appendChild(el("span", "count", `${state.appointments.length}`));
   root.appendChild(h);
-  root.appendChild(addRow([
-    { name: "title", ph: "what", cls: "title" },
-    { name: "when", type: "date", value: selDay },
-    { name: "time", type: "time" },
-    { name: "location", ph: "where (optional)" },
-    { name: "repeat", type: "select", options: REPEAT_OPTIONS },
-    { name: "until", type: "date" },
-  ], d => add("appointments", { title: d.title, when: d.time ? `${d.when} ${d.time}` : d.when, location: d.location, recur: parseRepeat(d.repeat, d.until) })));
+  root.appendChild(appointmentAddForm(selDay));
+
+  const { up, past } = orderedAppointments(applySearch(state.appointments));
   const body = el("div");
-  // recurring series show their next occurrence in the when column; the label
-  // (e.g. "every other thu") makes the repetition explicit.
-  mountList(body, applySearch(state.appointments), (a) => {
-    const rec = recurLabel(a.recur, (a.when || "").slice(0, 10));
-    const shown = rec ? (nextOccurrence(a, todayIso()) || a.when) : a.when;
-    const sub = [a.location, rec].filter(Boolean).join("  ·  ");
-    return listRow(a, "appointments", [
-      el("span", "when", fmtWhen(shown)),
-      buildBody(a.title, sub),
-    ]);
-  }, "no appointments. press n to add one.");
+  if (!up.length && !past.length) {
+    body.appendChild(el("div", "empty", "no appointments. press n to add one."));
+    root.appendChild(body);
+    return;
+  }
+  // one flat list with group headers; the running index mirrors currentList()
+  // ([...up, ...past]) so the selection model and keyboard nav stay in sync.
+  const list = el("div", "list");
+  let i = 0;
+  const group = (items, label) => {
+    if (!items.length) return;
+    list.appendChild(el("div", "grp-h", label));
+    items.forEach(a => {
+      const idx = i++;
+      const row = apptRow(a);
+      if (idx === sel && a.id !== editing) row.classList.add("sel");
+      if (a.id !== editing) row.onclick = () => { sel = idx; render(); };
+      list.appendChild(row);
+    });
+  };
+  group(up, "upcoming");
+  group(past, "past");
+  body.appendChild(list);
   root.appendChild(body);
 }
 
@@ -977,16 +1032,9 @@ function renderDayPanel() {
     li.appendChild(el("span", null, text));
     panel.appendChild(li);
   });
-  const q = el("form", "quick");
-  const inp = el("input"); inp.placeholder = "+ appointment";
-  const b = el("button", null, "add"); b.type = "submit";
-  q.append(inp, b);
-  q.onsubmit = (e) => {
-    e.preventDefault();
-    const v = inp.value.trim();
-    if (v) { add("appointments", { title: v, when: selDay }); inp.value = ""; }
-  };
-  panel.appendChild(q);
+  // full controls right where you're looking — time, place, repeat, end-date —
+  // pre-filled to the clicked day. same form as the appointments page.
+  panel.appendChild(appointmentAddForm(selDay));
   return panel;
 }
 
@@ -1202,7 +1250,13 @@ async function poll() {
 }
 
 wireBar();
-setView("today");
+const boot = location.hash.slice(1);
+setView(VIEWS.includes(boot) ? boot : "today");
 refresh();
 setInterval(poll, 4000);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") poll(); });
+// back/forward or a hand-typed #view switches the section
+window.addEventListener("hashchange", () => {
+  const v = location.hash.slice(1);
+  if (VIEWS.includes(v) && v !== view) setView(v);
+});

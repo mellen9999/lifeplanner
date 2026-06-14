@@ -186,12 +186,16 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 #day-panel h3 { font-size: 13px; margin-bottom: 8px; }
 #day-panel .li { padding: 4px 0; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: baseline; }
 #day-panel .li:last-of-type { border-bottom: none; }
-#day-panel .quick { margin-top: 10px; display: flex; gap: 6px; }
-#day-panel .quick input { font: inherit; background: var(--field); color: var(--fg);
-  border: 1px solid var(--line); padding: 5px 7px; flex: 1; }
-#day-panel .quick button { font: inherit; background: var(--bg); color: var(--fg);
-  border: 1px solid var(--fg); padding: 5px 10px; cursor: pointer; }
-#day-panel .quick button:hover { background: var(--inv-bg); color: var(--inv-fg); }
+/* the full add form stacks vertically in the narrow day-panel column */
+#day-panel .add { margin-top: 10px; margin-bottom: 0; flex-direction: column;
+  align-items: stretch; padding: 8px; gap: 6px; }
+#day-panel .add > * { flex: 0 0 auto; width: 100%; min-width: 0; }
+
+/* upcoming / past group headers on the appointments list */
+.grp-h { font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted); margin: 14px 0 5px; padding-bottom: 3px;
+  border-bottom: 1px solid var(--line); }
+.grp-h:first-child { margin-top: 2px; }
 
 /* ---- help overlay ---- */
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.7);

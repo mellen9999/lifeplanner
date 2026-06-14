@@ -11,7 +11,7 @@ like claude. no accounts, no cloud, no tracking. your data never leaves your mac
 
 - **stdlib-only web app** — python 3.8+, no dependencies. clone and run.
 - **square, terminal-styled ui** — light + dark, eight accent colors, keyboard-first (vim keys).
-- **read-only `.ics` feed** — subscribe from your phone, see appointments + due todos there.
+- **works on your phone** — installable PWA over your private network; optional `.ics` / caldav export if you'd rather see appointments in a native calendar app.
 - **mcp server** — let an assistant log your wins, add todos, flag what's slipping, and review your week (one optional dep).
 - **it reaches out** — optional push that nudges you: a daily standup + weekly review, with overdue
   alerts that escalate the longer you ignore them. as phone *and* desktop notifications, tap-to-open.
@@ -37,12 +37,13 @@ five sections (number keys switch them):
    it's been since your last win) and a **this week** recap (completion rate, wins, busiest day);
    then appointments today, todos due/overdue, today's wins with a one-field win logger, the next 7
    days, and a streak ribbon. open this first each day.
-2. **calendar** — month grid; click a day to see/add what's on it. colored marks: green = a win,
-   blue = an appointment, yellow = a due todo.
-3. **appointments** — things at a time. add with a date (+ optional time) and place. set
-   **repeat** (daily / weekly / every-other-week / monthly, with an optional end date) to make it
-   recur — the list shows the next occurrence, the calendar marks every one, and your phone gets it
-   as a standard repeating event.
+2. **calendar** — month grid; click a day to see what's on it and add an appointment with the **full
+   controls right there** (time, place, repeat, end-date) — no jumping to another page. colored
+   marks: green = a win, blue = an appointment, yellow = a due todo.
+3. **appointments** — your agenda. add with a date (+ optional time) and place; set **repeat** (daily
+   / weekly / every-other-week / monthly, with an optional end date) to make it recur. the list is
+   grouped **upcoming** (soonest first, recurring series resolved to their next occurrence) and
+   **past** — the calendar marks every occurrence and your phone gets it as a standard repeating event.
 4. **achievements** — your wins log, with a contribution heatmap + an honest, arcade-style streak.
    each logged day extends it and every 7th banks a **shield** (max 3); a missed day spends a shield
    to keep the run alive, but miss with no shields left and the streak resets to 0 — the shields are
@@ -128,8 +129,10 @@ app — an appointment you add on your phone goes straight into the one store an
 on your desktop instantly. it's an installable PWA — "add to home screen" and it opens full-screen
 with its own icon, like a native app. keep it private: a LAN or tailnet, never the public internet.
 
-prefer your phone's **native** calendar app instead? two options below — a read-only
-feed, or full two-way sync.
+**most people stop here** — the installed PWA is your calendar on the phone, and the nudges (below)
+push what matters. the two options below only matter if you want lifeplanner's appointments to show up
+**inside another calendar app you already live in** (a work/shared/family calendar you don't control).
+if the app itself is your calendar, skip them.
 
 ## phone calendar (one-way, read-only)
 
