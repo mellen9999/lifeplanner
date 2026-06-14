@@ -42,8 +42,8 @@ five sections (number keys switch them):
    often; watching the streak grow is the point.
 5. **todos** — things to do; give one a due date and it becomes a reminder on the calendar + phone.
 
-every item can be edited in place (`e` or double-click) or deleted (`×` / `d d`). nothing needs
-saving — it's written to disk the moment you add it.
+every item can be edited in place (`e` or double-click) or deleted (`×` / `d d`, undo with `u`).
+nothing needs saving — it's written to disk the moment you add it.
 
 ## keys
 
@@ -53,7 +53,9 @@ saving — it's written to disk the moment you add it.
 | `n` | new item | | `H` / `L` | calendar: jump month |
 | `j` / `k` | move selection (lists) | | `e` / dbl-click | edit selected |
 | `x` | toggle todo done | | `enter` | save edit / open day |
-| `d` `d` | delete selected | | `t` · `r` · `?` | theme · refresh · help |
+| `X` | todos: show / hide done | | `d` `d` | delete selected |
+| `/` | filter the current list | | `u` | undo last delete |
+| `t` · `r` · `?` | theme · refresh · help | | `esc` | cancel / close |
 
 theme and accent are saved with your data.
 
@@ -67,8 +69,8 @@ it creates `.venv`, installs the mcp sdk, and prints a ready `claude mcp add …
 script prints the `\.venv\Scripts\python.exe` path). run it, restart claude, and check `/mcp`. the assistant
 then has these tools, all writing to the same local files the web app reads:
 
-read: `get_overview` · `get_day` · `get_week` · `list_achievements` · `list_todos` ·
-`list_appointments`
+read: `get_overview` · `get_day` · `get_week` · `get_range` · `list_achievements` ·
+`list_todos` · `list_appointments`
 write: `add_achievement` · `add_todo` · `complete_todo` · `add_appointment` ·
 `update_achievement` · `update_todo` · `update_appointment` · `delete_item`
 
@@ -89,6 +91,7 @@ Description=lifeplanner web app
 WorkingDirectory=%h/projects/lifeplanner
 ExecStart=/usr/bin/python3 %h/projects/lifeplanner/app.pyw
 Environment=LIFEPLANNER_HOST=0.0.0.0
+Environment=LIFEPLANNER_NO_BROWSER=1
 Restart=on-failure
 [Install]
 WantedBy=default.target
@@ -184,6 +187,7 @@ all optional, via environment variables:
 | `LIFEPLANNER_HOST` | `127.0.0.1` | bind address (keep localhost unless you know why) |
 | `LIFEPLANNER_PORT` | `8765` | http port |
 | `LIFEPLANNER_DATA` | `./data` | where your json + `.ics` live (point at a synced/XDG dir) |
+| `LIFEPLANNER_NO_BROWSER` | unset | set to `1` to never auto-open a browser (e.g. when run as a service) |
 
 ## layout
 
@@ -191,8 +195,10 @@ all optional, via environment variables:
 app.pyw          web server + rest api (stdlib only)
 store.py         shared data layer — atomic writes, file lock, .ics generation
 mcp_server.py    mcp server (assistant's door; needs the mcp sdk)
+caldav_store.py  optional caldav backend for two-way phone sync (needs icalendar/defusedxml)
+reminders.py     optional ntfy push reminders (run on a timer)
 web/             ui — vanilla html / css / js
-tests/           data-layer test suite (python3 -m unittest discover -s tests)
+tests/           test suite (python3 -m unittest discover -s tests)
 launch.sh        linux/mac launcher        launch.bat   windows launcher
 install.sh       optional mcp setup        install.bat  windows mcp setup
 data/            your data (created on first run, gitignored — never committed)
