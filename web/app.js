@@ -598,14 +598,9 @@ function renderTodos() {
     toggle.setAttribute("role", "button");
     toggle.setAttribute("aria-expanded", showDone ? "true" : "false");
     toggle.tabIndex = 0;
-    toggle.title = showDone ? "hide completed" : "show completed";
-    const flip = () => {
-      showDone = !showDone; sel = -1;
-      try { localStorage.setItem("lp-show-done", showDone ? "1" : "0"); } catch {}
-      render();
-    };
-    toggle.onclick = flip;
-    toggle.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flip(); } };
+    toggle.title = showDone ? "hide completed (X)" : "show completed (X)";
+    toggle.onclick = toggleDoneVisibility;
+    toggle.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleDoneVisibility(); } };
     h.appendChild(toggle);
   }
   root.appendChild(h);
@@ -818,6 +813,7 @@ document.addEventListener("keydown", (e) => {
     case "H": if (view === "calendar") shiftMonth(-1); break;   // jump a whole month back
     case "L": if (view === "calendar") shiftMonth(1); break;    // jump a whole month forward
     case "x": toggleSelTodo(); break;
+    case "X": if (view === "todos") toggleDoneVisibility(); break;
     case "d": {
       const armed = document.querySelector(`#${view} .row.sel`);
       if (pendingDelete) { deleteSel(); pendingDelete = false; }
@@ -842,6 +838,13 @@ function moveCalDay(delta) {
   selDay = iso(d);
   if (d.getMonth() !== calCursor.getMonth() || d.getFullYear() !== calCursor.getFullYear())
     calCursor = startOfMonth(d);
+  render();
+}
+
+// show/hide the collapsed "done" pile (header chip + the X key share this).
+function toggleDoneVisibility() {
+  showDone = !showDone; sel = -1;
+  try { localStorage.setItem("lp-show-done", showDone ? "1" : "0"); } catch {}
   render();
 }
 
