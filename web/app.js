@@ -282,7 +282,7 @@ function listRow(item, entity, parts, opts = {}) {
   const row = el("div", "row" + (opts.done ? " done" : ""));
   row.dataset.id = item.id;
   if (opts.tick) {
-    const t = el("span", "tick", item.done ? "x" : "");
+    const t = el("span", "tick", item.done ? "✓" : "");
     t.onclick = (e) => { e.stopPropagation(); patch("todos", item.id, { done: !item.done }); };
     row.appendChild(t);
   }
@@ -594,8 +594,8 @@ function renderCalendar() {
   const root = document.getElementById("calendar");
   clear(root);
   const head = el("div"); head.id = "cal-head";
-  const prev = el("button", null, "‹ h"); prev.onclick = () => shiftMonth(-1);
-  const next = el("button", null, "l ›"); next.onclick = () => shiftMonth(1);
+  const prev = el("button"); prev.append("‹ ", el("span", "k", "H")); prev.title = "prev month (H)"; prev.onclick = () => shiftMonth(-1);
+  const next = el("button"); next.append(el("span", "k", "L"), " ›"); next.title = "next month (L)"; next.onclick = () => shiftMonth(1);
   const tod = el("button", null, "today");
   tod.onclick = () => { calCursor = startOfMonth(new Date()); selDay = todayIso(); render(); };
   const title = el("div", null, `${MONTHS[calCursor.getMonth()]} ${calCursor.getFullYear()}`);
@@ -651,7 +651,8 @@ function renderCalendar() {
 
 function renderDayPanel() {
   const panel = el("div"); panel.id = "day-panel";
-  panel.appendChild(el("h3", null, selDay));
+  const dp = new Date(selDay + "T00:00");
+  panel.appendChild(el("h3", null, `${MONTHS[dp.getMonth()]} ${dp.getDate()}`));
   const items = [];
   state.appointments.forEach(a => apptOccurrences(a, selDay, selDay)
     .forEach(w => items.push(["appt", `${timeOf(w) ? timeOf(w) + " " : ""}${a.title}`.trim()])));
@@ -703,6 +704,11 @@ function itemsByDay() {
 
 function shiftMonth(n) {
   calCursor = new Date(calCursor.getFullYear(), calCursor.getMonth() + n, 1);
+  // keep the selected day inside the viewed month so quick-add pre-fills the
+  // month you're looking at, not a stale day from before you navigated.
+  const sd = new Date(selDay + "T00:00");
+  if (sd.getMonth() !== calCursor.getMonth() || sd.getFullYear() !== calCursor.getFullYear())
+    selDay = iso(calCursor);
   render();
 }
 
@@ -710,6 +716,11 @@ function shiftMonth(n) {
 
 function focusAdd() {
   const v = document.getElementById(view);
+  if (view === "today") {  // today has no add-row — n logs a win
+    const win = document.getElementById("today-win");
+    if (win) { win.focus(); win.classList.add("flash"); setTimeout(() => win.classList.remove("flash"), 400); }
+    return;
+  }
   const form = v && v.querySelector(".add");
   if (form && form._first) {
     form._first.focus();
@@ -748,6 +759,13 @@ document.addEventListener("keydown", (e) => {
   if (typing) return;
   if (!help.hidden && e.key !== "?") return;
 
+  // any key other than a follow-up 'd' disarms a pending delete, so moving the
+  // selection then pressing 'd' can never delete the wrong (no-longer-armed) row.
+  if (e.key !== "d" && pendingDelete) {
+    pendingDelete = false;
+    document.querySelectorAll(".row.arming").forEach(r => r.classList.remove("arming"));
+  }
+
   switch (e.key) {
     case "1": setView("today"); break;
     case "2": setView("calendar"); break;
@@ -762,22 +780,25 @@ document.addEventListener("keydown", (e) => {
     case "?": help.hidden = !help.hidden; break;
     case "j": if (view === "calendar") moveCalDay(7); else moveSel(1); break;
     case "k": if (view === "calendar") moveCalDay(-7); else moveSel(-1); break;
-    case "h": if (view === "calendar") shiftMonth(-1); break;
-    case "l": if (view === "calendar") shiftMonth(1); break;
+    case "h": if (view === "calendar") moveCalDay(-1); break;   // prev day (crosses months)
+    case "l": if (view === "calendar") moveCalDay(1); break;    // next day (crosses months)
+    case "H": if (view === "calendar") shiftMonth(-1); break;   // jump a whole month back
+    case "L": if (view === "calendar") shiftMonth(1); break;    // jump a whole month forward
     case "x": toggleSelTodo(); break;
-    case "d":
+    case "d": {
+      const armed = document.querySelector(`#${view} .row.sel`);
       if (pendingDelete) { deleteSel(); pendingDelete = false; }
-      else {
+      else if (armed) {  // only arm when a deletable row is actually selected
         pendingDelete = true;
         // show the armed state so the second 'd' isn't a blind destructive action
-        const armed = document.querySelector(`#${view} .row.sel`);
-        if (armed) armed.classList.add("arming");
+        armed.classList.add("arming");
         setTimeout(() => {
           pendingDelete = false;
           document.querySelectorAll(".row.arming").forEach(r => r.classList.remove("arming"));
         }, 600);
       }
       break;
+    }
     default: pendingDelete = false;
   }
 });
