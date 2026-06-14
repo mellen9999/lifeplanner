@@ -97,6 +97,13 @@ WantedBy=default.target
 `systemctl --user enable --now lifeplanner`. set `LIFEPLANNER_HOST` to your LAN/tailnet address (or
 `0.0.0.0`) so the phone can reach it — keep it on a **private** network, never the public internet.
 
+> **trust boundary, once it leaves localhost.** the token only blocks *cross-origin* web
+> attacks — it does **not** stop a same-network device, which can load the page and read the token
+> straight from it. so everyone on the network effectively has full access. on a **tailnet** that's
+> fine (every device is individually authenticated — that's the recommended setup). on a **shared
+> LAN** (guest wifi, an office) it is not — put it behind a reverse proxy with HTTP Basic auth, or
+> stick to tailscale.
+
 to update later: `git pull` then `systemctl --user restart lifeplanner`. want it hands-off? add a
 5-minute `.timer` that runs `git pull --ff-only` in the clone and restarts on change — then a push
 deploys itself.
