@@ -91,21 +91,24 @@ function apptOccurrences(a, fromIso, toIso) {
 function nextOccurrence(a, fromIso) {
   return apptOccurrences(a, fromIso, addDays(fromIso, 366 * 5))[0] || null;
 }
-function parseRepeat(v) {
+function parseRepeat(v, until) {
   if (!v) return "";
   const [freq, iv] = v.split(":");
-  return { freq, interval: iv ? parseInt(iv, 10) : 1 };
+  const r = { freq, interval: iv ? parseInt(iv, 10) : 1 };
+  if (until) r.until = until;   // optional end date; empty clears it
+  return r;
 }
 function repeatValue(r) { return (!r || !r.freq) ? "" : (r.interval > 1 ? `${r.freq}:${r.interval}` : r.freq); }
 function recurLabel(r, anchorIso) {
   if (!r || !r.freq) return "";
   const iv = r.interval || 1;
+  let base;
   if (r.freq === "weekly") {
     const dow = DOW[(new Date(anchorIso + "T00:00").getDay() + 6) % 7];
-    return (iv === 2 ? "every other " : iv === 1 ? "every " : `every ${iv} weeks · `) + dow;
-  }
-  if (r.freq === "daily") return iv === 1 ? "every day" : `every ${iv} days`;
-  return iv === 1 ? "monthly" : `every ${iv} months`;
+    base = (iv === 2 ? "every other " : iv === 1 ? "every " : `every ${iv} weeks · `) + dow;
+  } else if (r.freq === "daily") base = iv === 1 ? "every day" : `every ${iv} days`;
+  else base = iv === 1 ? "monthly" : `every ${iv} months`;
+  return r.until ? `${base} · until ${r.until}` : base;
 }
 
 // ---- api --------------------------------------------------------------------
@@ -214,6 +217,21 @@ async function setSetting(patchObj) {
 
 function toggleTheme() {
   setSetting({ theme: (state.settings.theme === "dark" ? "light" : "dark") });
+}
+
+// one-click backup: download the whole data vault as a zip. fetched with the
+// token (kept out of the url), named with today's date.
+async function exportData() {
+  try {
+    const r = await fetch("/api/export", { headers: TOKEN ? { Authorization: "Bearer " + TOKEN } : {} });
+    if (!r.ok) throw new Error(r.statusText);
+    const url = URL.createObjectURL(await r.blob());
+    const a = el("a");
+    a.href = url; a.download = `lifeplanner-${todayIso()}.zip`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    toast("exported");
+  } catch (e) { toast("export failed — " + e.message); }
 }
 
 function renderAccents(active) {
@@ -431,6 +449,7 @@ function editFields(entity, item) {
     { name: "time", type: "time", value: timeOf(item.when) },
     { name: "location", ph: "where", value: item.location },
     { name: "repeat", type: "select", value: repeatValue(item.recur), options: REPEAT_OPTIONS },
+    { name: "until", type: "date", value: (item.recur && item.recur.until) || "" },
   ];
   if (entity === "achievements") return [
     { name: "title", cls: "title", value: item.title },
@@ -445,7 +464,7 @@ function editFields(entity, item) {
 
 function buildPatch(entity, v) {
   if (entity === "appointments")
-    return { title: v.title, when: v.time ? `${v.date} ${v.time}` : v.date, location: v.location, recur: parseRepeat(v.repeat) };
+    return { title: v.title, when: v.time ? `${v.date} ${v.time}` : v.date, location: v.location, recur: parseRepeat(v.repeat, v.until) };
   if (entity === "achievements")
     return { title: v.title, date: v.date, note: v.note };
   return { title: v.title, due: v.due };
@@ -672,7 +691,8 @@ function renderAppointments() {
     { name: "time", type: "time" },
     { name: "location", ph: "where (optional)" },
     { name: "repeat", type: "select", options: REPEAT_OPTIONS },
-  ], d => add("appointments", { title: d.title, when: d.time ? `${d.when} ${d.time}` : d.when, location: d.location, recur: parseRepeat(d.repeat) })));
+    { name: "until", type: "date" },
+  ], d => add("appointments", { title: d.title, when: d.time ? `${d.when} ${d.time}` : d.when, location: d.location, recur: parseRepeat(d.repeat, d.until) })));
   const body = el("div");
   // recurring series show their next occurrence in the when column; the label
   // (e.g. "every other thu") makes the repetition explicit.
@@ -1019,6 +1039,7 @@ async function deleteSel() {
 function wireBar() {
   document.querySelectorAll(".tab").forEach(t => t.onclick = () => setView(t.dataset.view));
   document.getElementById("theme-btn").onclick = toggleTheme;
+  document.getElementById("export-btn").onclick = exportData;
   document.getElementById("help-btn").onclick = () => { const h = document.getElementById("help"); h.hidden = !h.hidden; };
   document.getElementById("help").onclick = (e) => { if (e.target.id === "help") e.target.hidden = true; };
   const si = document.getElementById("search-input");

@@ -52,11 +52,11 @@ body {
 }
 /* inset ring — marks the active accent without adding external space (no gap drift) */
 .swatch.active { outline: 2px solid var(--fg); outline-offset: -4px; }
-#theme-btn, #help-btn {
+#theme-btn, #help-btn, #export-btn {
   font: inherit; background: var(--bg); color: var(--fg);
   border: 1px solid var(--line); padding: 4px 10px; cursor: pointer;
 }
-#theme-btn:hover, #help-btn:hover { background: var(--inv-bg); color: var(--inv-fg); }
+#theme-btn:hover, #help-btn:hover, #export-btn:hover { background: var(--inv-bg); color: var(--inv-fg); }
 
 /* ---- phone: header stacks (tabs row + tools row) so nothing scrolls off ---- */
 @media (max-width: 760px) {

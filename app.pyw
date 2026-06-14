@@ -60,6 +60,7 @@ CONTENT_TYPES = {
     ".js": "text/javascript; charset=utf-8",
     ".ics": "text/calendar; charset=utf-8",
     ".svg": "image/svg+xml",
+    ".webmanifest": "application/manifest+json",
 }
 
 
@@ -132,6 +133,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"version": store.version()})
         if path == "/api/settings":
             return self._json(200, store.get_settings())
+        if path == "/api/export":
+            return self._send(200, store.export_bytes(), "application/zip")
         if path == "/lifeplanner.ics":
             return self._send(200, store.build_ics(), CONTENT_TYPES[".ics"])
         if path.startswith("/api/"):

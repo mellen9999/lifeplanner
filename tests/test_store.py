@@ -4,11 +4,15 @@ run:  python3 -m unittest discover -s tests
 each run uses a throwaway data dir so it never touches real data.
 """
 
+import io
 import os
 import stat
 import sys
 import tempfile
+import threading
+import time
 import unittest
+import zipfile
 from datetime import date
 from pathlib import Path
 
@@ -273,6 +277,45 @@ class StoreTest(unittest.TestCase):
         self.assertNotIn("2025-02-29", occ)   # 2025 is not a leap year
         self.assertIn("2025-01-29", occ)
         self.assertIn("2025-03-29", occ)
+
+    # ---- export: one-click backup is a valid zip of the source-of-truth json ----
+    def test_export_is_valid_zip_with_data(self):
+        store.add_item("achievements", {"title": "shipped"})
+        store.add_item("todos", {"title": "rest"})
+        store.put_settings({"theme": "light"})
+        z = zipfile.ZipFile(io.BytesIO(store.export_bytes()))
+        self.assertIsNone(z.testzip())        # not corrupt
+        names = set(z.namelist())
+        self.assertIn("achievements.json", names)
+        self.assertIn("todos.json", names)
+        self.assertIn("settings.json", names)
+        # contents round-trip
+        self.assertIn("shipped", z.read("achievements.json").decode("utf-8"))
+
+    # ---- the lock that protects every write: stale reclaim + real concurrency ----
+    def test_lock_reclaims_stale(self):
+        # a lock left by a crashed writer (mtime > 10s) must be reclaimable, else
+        # the app deadlocks forever on the next write.
+        store._ensure()
+        fd = os.open(str(store.LOCK), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+        old = time.time() - 20
+        os.utime(store.LOCK, (old, old))
+        with store.FileLock(timeout=2):
+            pass  # should acquire by reclaiming the stale lock, not time out
+
+    def test_concurrent_writes_dont_lose_data(self):
+        # two writers hammering the same entity must serialize through the lock
+        # with zero lost items — the core data-integrity guarantee.
+        def worker(tag):
+            for i in range(15):
+                store.add_item("todos", {"title": f"{tag}-{i}"})
+        threads = [threading.Thread(target=worker, args=(t,)) for t in ("a", "b")]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(len(store.list_items("todos")), 30)
 
 
 if __name__ == "__main__":

@@ -4,10 +4,12 @@ single source of truth touched by both app.pyw (web ui) and mcp_server.py (claud
 local json files, atomic writes, cross-process lockfile, .ics generation. stdlib only.
 """
 
+import io
 import json
 import os
 import stat
 import time
+import zipfile
 from calendar import monthrange
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -640,3 +642,20 @@ def _regen_ics_locked():
 def regen_ics():
     with FileLock():
         _regen_ics_locked()
+
+
+# ---- export -----------------------------------------------------------------
+
+def export_bytes():
+    """all user data as a zip of the source-of-truth json — one-click backup /
+    portability. read under the lock so it's a consistent multi-file snapshot;
+    restore by unzipping back into the data dir."""
+    names = ("achievements", "todos", "settings", "appointments", "appointments.cache")
+    buf = io.BytesIO()
+    with FileLock():
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for name in names:
+                p = _path(name)
+                if p.exists():
+                    z.writestr(f"{name}.json", p.read_bytes())
+    return buf.getvalue()
