@@ -60,6 +60,7 @@ CONTENT_TYPES = {
     ".js": "text/javascript; charset=utf-8",
     ".ics": "text/calendar; charset=utf-8",
     ".svg": "image/svg+xml",
+    ".png": "image/png",
     ".webmanifest": "application/manifest+json",
 }
 
@@ -69,13 +70,15 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- helpers --------------------------------------------------------------
 
-    def _send(self, code, body=b"", ctype="application/json; charset=utf-8"):
+    def _send(self, code, body=b"", ctype="application/json; charset=utf-8", disposition=None):
         if isinstance(body, str):
             body = body.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        if disposition:
+            self.send_header("Content-Disposition", disposition)
         # defense-in-depth: no sniffing, no framing, no referrer leak, and a CSP
         # that matches the app (all first-party files, no inline/eval, no embeds).
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -134,7 +137,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/settings":
             return self._json(200, store.get_settings())
         if path == "/api/export":
-            return self._send(200, store.export_bytes(), "application/zip")
+            disp = 'attachment; filename="lifeplanner-export.zip"'
+            # HEAD must not build the zip (it takes the lock + reads every file)
+            # just to discard the body — answer headers only.
+            if self.command == "HEAD":
+                return self._send(200, b"", "application/zip", disposition=disp)
+            return self._send(200, store.export_bytes(), "application/zip", disposition=disp)
         if path == "/lifeplanner.ics":
             return self._send(200, store.build_ics(), CONTENT_TYPES[".ics"])
         if path.startswith("/api/"):

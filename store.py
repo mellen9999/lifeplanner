@@ -246,6 +246,10 @@ def _normalize(name, item):
     for key in PATCHABLE[name]:
         if key != "title":
             base[key] = _coerce(name, key, item.get(key))
+    # done_at is server-stamped (not client-patchable), but keep the key present
+    # so the stored shape is uniform — and carry it through an undo-restore.
+    if name == "todos":
+        base["done_at"] = str(item.get("done_at") or "")
     return base
 
 
@@ -486,8 +490,11 @@ def version():
     """cheap change token for the ui poller. nanosecond mtimes so two quick writes
     never collapse; in caldav mode it also folds in the server's collection tag so
     a change made on the phone flips the token and the desktop refreshes live."""
-    names = ["achievements", "todos", "settings"]
-    names.append("appointments.cache" if _CALDAV is not None else "appointments")
+    # derived from ENTITIES (+ settings) so a new entity's writes always flip the
+    # token; in caldav mode appointments live on the server, so watch the cache.
+    names = ["settings"]
+    for e in ENTITIES:
+        names.append("appointments.cache" if (e == "appointments" and _CALDAV is not None) else e)
     latest = 0
     for name in names:
         try:
@@ -501,20 +508,36 @@ def version():
     return token
 
 
-def day(target):
-    """all items on a given YYYY-MM-DD date."""
-    d = _norm_date(target)
-    appts = []
+def days(start, end):
+    """every non-empty day in [start, end] (inclusive), keyed by YYYY-MM-DD, each
+    {date, appointments, todos, achievements}. reads each list ONCE and buckets in
+    memory — so a multi-day view costs 3 reads, not 3 per day. recurring
+    appointments are expanded to every occurrence in range (shown, not the anchor)."""
+    s, e = _norm_date(start), _norm_date(end)
+    out = {}
+
+    def slot(d):
+        return out.setdefault(
+            d, {"date": d, "appointments": [], "todos": [], "achievements": []})
+
     for a in list_items("appointments"):
-        occ = occurrences_in(a, d, d)
-        if occ:
-            appts.append({**a, "when": occ[0]})  # show the occurrence, not the anchor
-    return {
-        "date": d,
-        "appointments": appts,
-        "todos": [t for t in list_items("todos") if t.get("due") == d],
-        "achievements": [a for a in list_items("achievements") if a.get("date") == d],
-    }
+        for w in occurrences_in(a, s, e):
+            slot(w[:10])["appointments"].append({**a, "when": w})
+    for t in list_items("todos"):
+        due = t.get("due")
+        if due and s <= due <= e:
+            slot(due)["todos"].append(t)
+    for a in list_items("achievements"):
+        dt = a.get("date")
+        if dt and s <= dt <= e:
+            slot(dt)["achievements"].append(a)
+    return out
+
+
+def day(target):
+    """all items on a given YYYY-MM-DD date (the empty shape if nothing falls on it)."""
+    d = _norm_date(target)
+    return days(d, d).get(d, {"date": d, "appointments": [], "todos": [], "achievements": []})
 
 
 # ---- .ics generation --------------------------------------------------------
@@ -650,12 +673,19 @@ def export_bytes():
     """all user data as a zip of the source-of-truth json — one-click backup /
     portability. read under the lock so it's a consistent multi-file snapshot;
     restore by unzipping back into the data dir."""
-    names = ("achievements", "todos", "settings", "appointments", "appointments.cache")
-    buf = io.BytesIO()
+    # derived from ENTITIES so a new entity can never be silently left out of a
+    # backup. settings + the caldav cache round out the on-disk vault.
+    names = (*ENTITIES, "appointments.cache", "settings")
+    # read raw bytes under the lock (a consistent snapshot), then compress
+    # outside it — compression is CPU-bound and must not block concurrent writes.
+    blobs = {}
     with FileLock():
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-            for name in names:
-                p = _path(name)
-                if p.exists():
-                    z.writestr(f"{name}.json", p.read_bytes())
+        for name in names:
+            p = _path(name)
+            if p.exists():
+                blobs[f"{name}.json"] = p.read_bytes()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for fn, data in blobs.items():
+            z.writestr(fn, data)
     return buf.getvalue()

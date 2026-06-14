@@ -37,6 +37,7 @@ function startOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
 function todayIso() { return iso(new Date()); }
 function pad(n) { return String(n).padStart(2, "0"); }
 function addDays(ds, n) { const d = new Date(ds + "T00:00"); d.setDate(d.getDate() + n); return iso(d); }
+function dayDiff(a, b) { return Math.round((new Date(b + "T00:00") - new Date(a + "T00:00")) / 864e5); }
 function el(tag, cls, txt) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -144,16 +145,18 @@ async function patch(entity, id, data) {
   try { await api("PATCH", `/api/${entity}/${id}`, data); await refresh(); }
   catch (e) { toast(e.message); }
 }
-async function remove(entity, id) {
-  try { await api("DELETE", `/api/${entity}/${id}`); await refresh(); }
-  catch (e) { toast(e.message); }
-}
-
-// delete with a one-shot undo. the atomic store + re-add make this safe: undo
-// re-creates the item from the stashed copy (a fresh id, same content).
+// delete with a one-shot undo. the undo only arms on a CONFIRMED delete: a
+// failed request shows the real error and leaves no stale undo — otherwise
+// pressing `u` would re-POST a still-present item and create a duplicate.
 async function deleteWithUndo(entity, item) {
+  try {
+    await api("DELETE", `/api/${entity}/${item.id}`);
+  } catch (e) {
+    toast(e.message);
+    return;
+  }
   lastDeleted = { entity, item };
-  await remove(entity, item.id);
+  await refresh();
   toast(`deleted "${item.title}"`, "undo (u)", undoDelete);
 }
 function undoDelete() {
@@ -291,13 +294,16 @@ function visibleTodos() {
 
 // ---- render -----------------------------------------------------------------
 
+// only the visible view is (re)built — the other four are display:none, so
+// painting them on every poll/keystroke is wasted DOM work. switching views
+// calls render() again, so the newly-active view is always fresh.
+const RENDERERS = {
+  today: renderToday, calendar: renderCalendar, appointments: renderAppointments,
+  achievements: renderAchievements, todos: renderTodos,
+};
 function render() {
   renderSyncBanner();
-  renderToday();
-  renderCalendar();
-  renderAppointments();
-  renderAchievements();
-  renderTodos();
+  (RENDERERS[view] || renderToday)();
   if (searchOpen) {
     const n = currentList().length;
     document.getElementById("search-count").textContent = `${n} match${n === 1 ? "" : "es"}`;
@@ -591,20 +597,26 @@ function arcadeStreak(counts) {
   const today = todayIso();
   const keys = Object.keys(counts).filter(d => d <= today).sort();
   if (!keys.length) return { streak: 0, lives: 0, max: 0, atRisk: false };
+  // walk the logged days (O(wins)), bridging the gaps between them in one step
+  // each — not day-by-day from the first win to today (which was O(days)).
   let streak = 0, lives = 0, inRun = 0, longest = 0;
-  const step = (d, isToday) => {
-    if (counts[d]) {
-      if (streak === 0) lives = STREAK_START;   // a fresh run gets its starter shield
-      streak++; inRun++;
-      if (inRun % STREAK_EARN === 0) lives = Math.min(STREAK_MAX, lives + 1);
-    } else if (!isToday && streak > 0) {
-      if (lives > 0) lives--;                    // spend a shield, bridge the gap
-      else { streak = 0; inRun = 0; lives = 0; } // out of lives → game over
-    }
-    longest = Math.max(longest, streak);
+  const win = () => {
+    if (streak === 0) lives = STREAK_START;     // a fresh run gets its starter shield
+    streak++; inRun++;
+    if (inRun % STREAK_EARN === 0) lives = Math.min(STREAK_MAX, lives + 1);
+    if (streak > longest) longest = streak;
   };
-  for (let d = keys[0]; d < today; d = addDays(d, 1)) step(d, false);
-  step(today, true);  // today: log = extend, miss = grace (no penalty yet)
+  const miss = (gap) => {                        // `gap` consecutive missed days
+    if (gap <= 0 || streak === 0) return;        // once reset, more misses are no-ops
+    if (gap <= lives) lives -= gap;              // shields bridge the gap
+    else { streak = 0; inRun = 0; lives = 0; }   // out of shields → game over
+  };
+  win();  // keys[0]: the first logged day
+  for (let i = 1; i < keys.length; i++) {
+    miss(dayDiff(keys[i - 1], keys[i]) - 1);     // missed days strictly between
+    win();
+  }
+  miss(dayDiff(keys[keys.length - 1], today) - 1);  // trailing gap; today unlogged = grace
   const atRisk = !counts[today] && streak > 0 && lives === 0;
   return { streak, lives, max: longest, atRisk };
 }

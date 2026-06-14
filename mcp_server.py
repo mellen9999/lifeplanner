@@ -30,9 +30,23 @@ def _upcoming(appts, today):
     return sorted(out, key=lambda a: a["when"])
 
 
-def _recur(recur, interval):
+def _recur(recur, interval, until=""):
     """build a recur rule from loose tool args, or '' for one-time."""
-    return {"freq": recur, "interval": interval} if recur else ""
+    if not recur:
+        return ""
+    r = {"freq": recur, "interval": interval}
+    u = (until or "").strip()
+    if u:
+        r["until"] = u
+    return r
+
+
+def _current_recur(item_id):
+    """the appointment's stored recur dict (or {} if none) — lets an edit preserve
+    a field, like the end-date, that the caller didn't mention."""
+    a = next((x for x in store.list_items("appointments") if x.get("id") == item_id), None)
+    r = a.get("recur") if a else None
+    return r if isinstance(r, dict) else {}
 
 
 # ---- read -------------------------------------------------------------------
@@ -116,14 +130,15 @@ def complete_todo(todo_id: str) -> dict:
 
 @mcp.tool()
 def add_appointment(title: str, when: str, location: str = "", note: str = "",
-                    recur: str = "", interval: int = 1) -> dict:
+                    recur: str = "", interval: int = 1, until: str = "") -> dict:
     """add an appointment. when = 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM'.
     to repeat it, set recur = 'daily' | 'weekly' | 'monthly' and interval = N
-    (e.g. recur='weekly', interval=2 on a thursday = every other thursday)."""
+    (e.g. recur='weekly', interval=2 on a thursday = every other thursday).
+    until = 'YYYY-MM-DD' optionally caps the repeat (last possible occurrence)."""
     try:
         return store.add_item("appointments",
                               {"title": title, "when": when, "location": location,
-                               "note": note, "recur": _recur(recur, interval)})
+                               "note": note, "recur": _recur(recur, interval, until)})
     except store.SyncError:
         return {"error": "calendar server unreachable — not saved"}
 
@@ -131,10 +146,12 @@ def add_appointment(title: str, when: str, location: str = "", note: str = "",
 @mcp.tool()
 def update_appointment(item_id: str, title: str = "", when: str = "",
                        location: str = "", note: str = "",
-                       recur: str = "", interval: int = 1) -> dict:
+                       recur: str = "", interval: int = 1, until: str = "") -> dict:
     """edit/reschedule an appointment by id. only non-empty fields are changed.
     when = 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM'. pass 'none' to clear location, note,
-    or recur (recur='daily'|'weekly'|'monthly' + interval makes it repeat)."""
+    or recur (recur='daily'|'weekly'|'monthly' + interval makes it repeat).
+    until = 'YYYY-MM-DD' caps the repeat; 'none' clears the cap. changing recur
+    without passing until keeps the existing end-date (never silently wipes it)."""
     patch = {}
     if title:
         patch["title"] = title
@@ -145,7 +162,19 @@ def update_appointment(item_id: str, title: str = "", when: str = "",
     if note:
         patch["note"] = "" if note.lower() == "none" else note
     if recur:
-        patch["recur"] = "" if recur.lower() == "none" else _recur(recur, interval)
+        if recur.lower() == "none":
+            patch["recur"] = ""
+        else:
+            u = (until or "").strip()
+            keep = _current_recur(item_id).get("until", "")
+            eff = "" if u.lower() == "none" else (u or keep)  # set / clear / preserve
+            patch["recur"] = _recur(recur, interval, eff)
+    elif until:
+        # only the end-date is changing — keep the existing freq/interval.
+        cur = _current_recur(item_id)
+        if cur.get("freq"):
+            u = until.strip()
+            patch["recur"] = {**cur, "until": "" if u.lower() == "none" else u}
     try:
         return store.update_item("appointments", item_id, patch) or {"error": "not found", "id": item_id}
     except store.SyncError:
@@ -181,13 +210,9 @@ def update_achievement(item_id: str, title: str = "", date: str = "", note: str 
 def get_week() -> dict:
     """everything in the next 7 days, grouped by date — appointments, due todos, wins."""
     today = date.today()
-    out = {}
-    for i in range(7):
-        d = (today + timedelta(days=i)).isoformat()
-        day = store.day(d)
-        if day["appointments"] or day["todos"] or day["achievements"]:
-            out[d] = day
-    return {"from": today.isoformat(), "days": out}
+    end = today + timedelta(days=6)
+    return {"from": today.isoformat(),
+            "days": store.days(today.isoformat(), end.isoformat())}
 
 
 @mcp.tool()
@@ -203,13 +228,8 @@ def get_range(start: str, end: str) -> dict:
         s, e = e, s
     if (e - s).days > 60:
         return {"error": "range too wide (max 60 days)"}
-    out = {}
-    for i in range((e - s).days + 1):
-        d = (s + timedelta(days=i)).isoformat()
-        day = store.day(d)
-        if day["appointments"] or day["todos"] or day["achievements"]:
-            out[d] = day
-    return {"from": s.isoformat(), "to": e.isoformat(), "days": out}
+    return {"from": s.isoformat(), "to": e.isoformat(),
+            "days": store.days(s.isoformat(), e.isoformat())}
 
 
 @mcp.tool()
