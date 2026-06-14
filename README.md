@@ -208,10 +208,11 @@ data/            your data (created on first run, gitignored — never committed
 
 ## data + safety
 
-plain json in `data/`. back it up by copying the folder. files fail safe to empty rather than
-crashing, writes are atomic (temp + rename), and the ui and assistant are serialized by a lockfile
-so concurrent writes can't corrupt anything. your data dir is gitignored — it will never end up in a
-commit.
+plain json in `data/`. back it up with the **⤓ export** button (downloads the whole vault as a
+dated zip) or just copy the folder; restore by unzipping back into `data/`. files fail safe to empty
+rather than crashing, writes are atomic (temp + rename), and the ui and assistant are serialized by a
+lockfile so concurrent writes can't corrupt anything. your data dir is gitignored — it will never
+end up in a commit.
 
 ## tests
 
