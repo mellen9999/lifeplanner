@@ -562,26 +562,64 @@ function winCounts() {
   return m;
 }
 
+// arcade streak — honest, no hidden saves. each logged day extends the streak
+// and every 7th banks a "shield" (max 3, you start a run with 1). a missed day
+// spends a shield to bridge the gap so the streak lives on; miss with zero
+// shields and it's GAME OVER — the streak resets to 0. today not logged yet is
+// grace (the day isn't over), flagged at-risk when it's your last life.
+const STREAK_START = 1, STREAK_EARN = 7, STREAK_MAX = 3;
+function arcadeStreak(counts) {
+  const today = todayIso();
+  const keys = Object.keys(counts).filter(d => d <= today).sort();
+  if (!keys.length) return { streak: 0, lives: 0, max: 0, atRisk: false };
+  let streak = 0, lives = 0, inRun = 0, longest = 0;
+  const step = (d, isToday) => {
+    if (counts[d]) {
+      if (streak === 0) lives = STREAK_START;   // a fresh run gets its starter shield
+      streak++; inRun++;
+      if (inRun % STREAK_EARN === 0) lives = Math.min(STREAK_MAX, lives + 1);
+    } else if (!isToday && streak > 0) {
+      if (lives > 0) lives--;                    // spend a shield, bridge the gap
+      else { streak = 0; inRun = 0; lives = 0; } // out of lives → game over
+    }
+    longest = Math.max(longest, streak);
+  };
+  for (let d = keys[0]; d < today; d = addDays(d, 1)) step(d, false);
+  step(today, true);  // today: log = extend, miss = grace (no penalty yet)
+  const atRisk = !counts[today] && streak > 0 && lives === 0;
+  return { streak, lives, max: longest, atRisk };
+}
+
 function streakRibbon() {
   const counts = winCounts();
   const ribbon = el("div", "ribbon");
-  const days = Object.keys(counts).sort();
-  // current streak: count back from today (or yesterday if today not logged yet)
-  let cur = 0;
-  let cursor = counts[todayIso()] ? todayIso() : addDays(todayIso(), -1);
-  while (counts[cursor]) { cur++; cursor = addDays(cursor, -1); }
-  // longest run of consecutive days
-  let longest = 0, run = 0, prev = null;
-  days.forEach(d => { run = (prev && addDays(prev, 1) === d) ? run + 1 : 1; longest = Math.max(longest, run); prev = d; });
+  const s = arcadeStreak(counts);
   const t = todayIso();
   const week = state.achievements.filter(a => a.date > addDays(t, -7) && a.date <= t).length;
   ribbon.append(
-    stat(cur, "day streak"),
-    stat(longest, "longest"),
+    streakStat(s),
+    stat(s.max, "longest"),
     stat(week, "this week"),
     stat(state.achievements.length, "total wins"),
   );
   return ribbon;
+}
+
+// the streak stat carries the arcade HUD: number (yellow when at-risk) + a row
+// of shield pips (filled = banked lives) so the grace is always visible, never hidden.
+function streakStat(s) {
+  const box = el("div", "stat");
+  const n = el("div", "stat-n" + (s.atRisk ? " risk" : ""), String(s.streak));
+  box.appendChild(n);
+  box.appendChild(el("div", "stat-l", "day streak"));
+  const pips = el("div", "pips");
+  for (let i = 0; i < STREAK_MAX; i++) pips.appendChild(el("div", "pip" + (i < s.lives ? " on" : "")));
+  pips.title = `${s.lives} of ${STREAK_MAX} shields — a shield saves one missed day; earn one every ${STREAK_EARN} days`;
+  box.appendChild(pips);
+  box.title = s.atRisk
+    ? "at risk — no shields left. log a win today or the streak resets."
+    : "streak survives a missed day by spending a shield. out of shields + a miss = reset.";
+  return box;
 }
 function stat(n, label) {
   const s = el("div", "stat");

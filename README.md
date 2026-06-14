@@ -38,8 +38,10 @@ five sections (number keys switch them):
 3. **appointments** — things at a time. add with a date (+ optional time) and place. set
    **repeat** (daily / weekly / every-other-week / monthly) to make it recur — the list shows the
    next occurrence, the calendar marks every one, and your phone gets it as a standard repeating event.
-4. **achievements** — your wins log, with a contribution heatmap + streak counters. log small wins
-   often; watching the streak grow is the point.
+4. **achievements** — your wins log, with a contribution heatmap + an honest, arcade-style streak.
+   each logged day extends it and every 7th banks a **shield** (max 3); a missed day spends a shield
+   to keep the run alive, but miss with no shields left and the streak resets to 0 — the shields are
+   shown so the grace is never hidden. log small wins often; watching the streak grow is the point.
 5. **todos** — things to do; give one a due date and it becomes a reminder on the calendar + phone.
 
 every item can be edited in place (`e` or double-click) or deleted (`×` / `d d`, undo with `u`).
