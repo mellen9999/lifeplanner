@@ -13,6 +13,8 @@ like claude. no accounts, no cloud, no tracking. your data never leaves your mac
 - **square, terminal-styled ui** — light + dark, eight accent colors, keyboard-first (vim keys).
 - **read-only `.ics` feed** — subscribe from your phone, see appointments + due todos there.
 - **mcp server** — let an assistant log your wins, add todos, flag what's slipping, and review your week (one optional dep).
+- **it reaches out** — optional push that nudges you: a daily standup + weekly review, with overdue
+  alerts that escalate the longer you ignore them. as phone *and* desktop notifications, tap-to-open.
 - **crash-safe storage** — atomic writes, cross-process lock, corrupt-file-safe.
 
 ## quick start
@@ -31,8 +33,10 @@ no build step, no `npm`, no dependencies for the app itself.
 
 five sections (number keys switch them):
 
-1. **today** — your daily glance. appointments today, todos due/overdue, today's wins with a
-   one-field win logger, the next 7 days, and a streak ribbon. open this first each day.
+1. **today** — your daily glance. up top, **needs attention** (overdue + stale todos and how long
+   it's been since your last win) and a **this week** recap (completion rate, wins, busiest day);
+   then appointments today, todos due/overdue, today's wins with a one-field win logger, the next 7
+   days, and a streak ribbon. open this first each day.
 2. **calendar** — month grid; click a day to see/add what's on it. colored marks: green = a win,
    blue = an appointment, yellow = a due todo.
 3. **appointments** — things at a time. add with a date (+ optional time) and place. set
@@ -203,6 +207,12 @@ most once per day / per week, and does nothing without the env vars — fully op
 with `LIFEPLANNER_STANDUP_HOUR` (default 8), `LIFEPLANNER_REVIEW_DOW` (mon=0, default 6=sun),
 `LIFEPLANNER_REVIEW_HOUR` (default 18); set `LIFEPLANNER_NUDGE=off` to silence it.
 
+set `LIFEPLANNER_URL` (your app's address) and **tapping a notification opens lifeplanner**. ntfy
+isn't just phones — subscribe to the same server + topic from the [ntfy web app or desktop client](https://docs.ntfy.sh/subscribe/phone/)
+and the nudges arrive as **desktop notifications** too (handy if you live at a computer). a minimal
+always-on bridge is just `ntfy subscribe <server>/<topic> 'notify-send "$title" "$message"'` under a
+user service.
+
 ## configuration
 
 all optional, via environment variables:
@@ -213,6 +223,13 @@ all optional, via environment variables:
 | `LIFEPLANNER_PORT` | `8765` | http port |
 | `LIFEPLANNER_DATA` | `./data` | where your json + `.ics` live (point at a synced/XDG dir) |
 | `LIFEPLANNER_NO_BROWSER` | unset | set to `1` to never auto-open a browser (e.g. when run as a service) |
+| `LIFEPLANNER_NTFY_SERVER` · `_TOPIC` | unset | ntfy server + topic for reminders/nudges (both required to push) |
+| `LIFEPLANNER_URL` | unset | your app's address; makes notifications tap-to-open |
+| `LIFEPLANNER_REMINDERS` | `1440,60` | reminder offsets in minutes before a timed appointment |
+| `LIFEPLANNER_STANDUP_HOUR` | `8` | hour the daily standup nudge may fire |
+| `LIFEPLANNER_REVIEW_DOW` · `_HOUR` | `6` · `18` | weekly review day (mon=0) + hour |
+| `LIFEPLANNER_NUDGE` | unset | set to `off` to disable nudges entirely |
+| `LIFEPLANNER_CALDAV` | unset | set to `off` to force local-only appointments (ignore `.caldav.json`) |
 
 ## layout
 
