@@ -107,6 +107,9 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
   flex: 0 0 auto; width: 15px; height: 15px; border: 1px solid currentColor;
   display: inline-block; cursor: pointer; text-align: center; line-height: 13px; font-size: 12px;
 }
+/* hovering an unchecked box previews the ✓ it will set — so it can't be
+   mistaken for a selection control. */
+.tick:empty:hover::after { content: "✓"; opacity: .4; }
 .empty { color: var(--muted); padding: 18px 10px; border: 1px dashed var(--line); }
 .count { color: var(--muted); font-size: 13px; margin-left: 8px; }
 

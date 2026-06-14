@@ -277,14 +277,23 @@ function buildBody(title, sub) {
   return b;
 }
 
+// the done-toggle box shared by every todo row. it IS the action — click to
+// complete (strikethrough), click again to reopen. not a selection control.
+function tickEl(done, onToggle) {
+  const t = el("span", "tick", done ? "✓" : "");
+  t.title = done ? "mark not done" : "mark done";
+  t.setAttribute("role", "checkbox");
+  t.setAttribute("aria-checked", done ? "true" : "false");
+  t.onclick = (e) => { e.stopPropagation(); onToggle(); };
+  return t;
+}
+
 function listRow(item, entity, parts, opts = {}) {
   if (item.id === editing) return editRow(item, entity);
   const row = el("div", "row" + (opts.done ? " done" : ""));
   row.dataset.id = item.id;
   if (opts.tick) {
-    const t = el("span", "tick", item.done ? "✓" : "");
-    t.onclick = (e) => { e.stopPropagation(); patch("todos", item.id, { done: !item.done }); };
-    row.appendChild(t);
+    row.appendChild(tickEl(item.done, () => patch("todos", item.id, { done: !item.done })));
   }
   parts.forEach(p => row.appendChild(p));
   const editBtn = el("span", "rowedit", "edit");
@@ -447,9 +456,7 @@ function agendaLine(kind, text, sub) {
 }
 function agendaTodo(x, label) {
   const li = el("div", "li" + (label.startsWith("overdue") ? " overdue" : ""));
-  const t = el("span", "tick", "");
-  t.onclick = () => patch("todos", x.id, { done: true });
-  li.appendChild(t);
+  li.appendChild(tickEl(false, () => patch("todos", x.id, { done: true })));
   const body = el("div");
   body.appendChild(el("span", null, x.title));
   body.appendChild(el("div", "sub", label));
