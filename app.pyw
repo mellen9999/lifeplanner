@@ -8,13 +8,14 @@ so we just open the browser to it and exit. localhost-only = no lan exposure.
 
 import json
 import os
+import secrets
 import socket
 import sys
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import store
 
@@ -25,6 +26,32 @@ MAX_BODY = 1 << 20  # 1 MiB request-body cap — a local single-user app never n
 BASE = Path(__file__).resolve().parent
 WEB = BASE / "web"
 URL = f"http://{HOST}:{PORT}/"
+
+
+def _load_token():
+    """static bearer token, persisted in the (gitignored) data dir.
+
+    localhost-bind already blocks the network; this gate stops *other origins* —
+    a malicious page can fire a cross-origin POST at 127.0.0.1, but can't read
+    index.html (same-origin policy) to learn the token, and the custom auth
+    header forces a preflight we never approve. generated once, 0600.
+    """
+    store.DATA.mkdir(exist_ok=True)
+    tf = store.DATA / "token"
+    if tf.exists():
+        t = tf.read_text().strip()
+        if t:
+            return t
+    t = secrets.token_urlsafe(32)
+    tf.write_text(t)
+    try:
+        tf.chmod(0o600)
+    except OSError:
+        pass
+    return t
+
+
+TOKEN = _load_token()
 
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -68,9 +95,22 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass  # quiet
 
+    def _authed(self):
+        """gate the data surfaces; static assets stay open (see _load_token)."""
+        u = urlparse(self.path)
+        bearer = self.headers.get("Authorization", "") == f"Bearer {TOKEN}"
+        if u.path.startswith("/api/"):
+            return bearer
+        if u.path == "/lifeplanner.ics":
+            # calendar clients can't set headers — accept ?token= too
+            return bearer or parse_qs(u.query).get("token", [""])[0] == TOKEN
+        return True
+
     # -- routing --------------------------------------------------------------
 
     def do_GET(self):
+        if not self._authed():
+            return self._json(401, {"error": "unauthorized"})
         path = urlparse(self.path).path
         if path == "/api/state":
             return self._json(200, store.state())
@@ -87,6 +127,8 @@ class Handler(BaseHTTPRequestHandler):
     do_HEAD = do_GET
 
     def do_POST(self):
+        if not self._authed():
+            return self._json(401, {"error": "unauthorized"})
         path = urlparse(self.path).path
         entity = self._entity(path, exact=True)
         if entity is None:
@@ -102,6 +144,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(503, {"error": "calendar server unreachable — not saved"})
 
     def do_PUT(self):
+        if not self._authed():
+            return self._json(401, {"error": "unauthorized"})
         if urlparse(self.path).path == "/api/settings":
             data = self._body()
             if data is None:
@@ -110,6 +154,8 @@ class Handler(BaseHTTPRequestHandler):
         return self._json(404, {"error": "not found"})
 
     def do_PATCH(self):
+        if not self._authed():
+            return self._json(401, {"error": "unauthorized"})
         entity, item_id = self._entity_id(urlparse(self.path).path)
         if entity is None:
             return self._json(404, {"error": "not found"})
@@ -123,6 +169,8 @@ class Handler(BaseHTTPRequestHandler):
         return self._json(200, item) if item else self._json(404, {"error": "not found"})
 
     def do_DELETE(self):
+        if not self._authed():
+            return self._json(401, {"error": "unauthorized"})
         entity, item_id = self._entity_id(urlparse(self.path).path)
         if entity is None:
             return self._json(404, {"error": "not found"})
@@ -155,7 +203,12 @@ class Handler(BaseHTTPRequestHandler):
         if not target.is_file():
             return self._send(404, "not found", "text/plain")
         ctype = CONTENT_TYPES.get(target.suffix, "application/octet-stream")
-        self._send(200, target.read_bytes(), ctype)
+        data = target.read_bytes()
+        if target.name == "index.html":
+            # hand the same-origin app its token; cross-origin pages can't read this
+            tag = f'<meta name="lp-token" content="{TOKEN}">\n</head>'.encode()
+            data = data.replace(b"</head>", tag, 1)
+        self._send(200, data, ctype)
 
 
 def already_running():

@@ -105,8 +105,11 @@ function recurLabel(r, anchorIso) {
 
 // ---- api --------------------------------------------------------------------
 
+const TOKEN = document.querySelector('meta[name="lp-token"]')?.content || "";
+
 async function api(method, path, body) {
   const opt = { method, headers: {} };
+  if (TOKEN) opt.headers["Authorization"] = "Bearer " + TOKEN;
   if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
   const r = await fetch(path, opt);
   if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || r.statusText); }
