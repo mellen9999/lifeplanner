@@ -5,6 +5,10 @@ twist: an llm can read and write it too. one set of plain json files on your dis
 them: a fast vanilla web ui for you, and an [mcp](https://modelcontextprotocol.io) server for an
 assistant like claude. no accounts, no cloud, no tracking. your data never leaves your machine.
 
+![the today view — appointments, todos due, today's wins, and your streak at a glance](docs/today.png)
+
+![the month calendar — appointments, due todos, and logged wins on one grid, with a day panel](docs/calendar.png)
+
 - **stdlib-only web app** — python 3.8+, no dependencies. clone and run.
 - **square, terminal-styled ui** — light + dark, eight accent colors, keyboard-first (vim keys).
 - **read-only `.ics` feed** — subscribe from your phone, see appointments + due todos there.
