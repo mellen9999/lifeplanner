@@ -154,7 +154,6 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .cell:not(.pad):hover, .cell.sel { background: var(--inv-bg); color: var(--inv-fg); }
 .cell.today .num { outline: 2px solid var(--accent); outline-offset: 1px; }
 .cell .num { font-size: 12px; font-variant-numeric: tabular-nums; align-self: flex-start; }
-.cell .marks { display: flex; gap: 3px; flex-wrap: wrap; margin-top: auto; }
 
 #day-panel { border: 1px solid var(--line); padding: 10px; }
 #day-panel h3 { font-size: 13px; margin-bottom: 8px; }

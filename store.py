@@ -204,25 +204,36 @@ def list_items(name):
     return items if isinstance(items, list) else []
 
 
+def _coerce(name, key, value):
+    """normalize one field to its stored form. the single place field validation
+    lives — so add and every update path coerce identically and can never drift
+    (a bad date/rule can't slip in through one door and crash expansion later)."""
+    if key == "recur":
+        return _norm_recur(value)
+    if key == "when":
+        return _norm_when(str(value or "").strip())
+    if key == "due":
+        s = str(value or "").strip()
+        return _norm_date(s) if s else ""
+    if key == "date":
+        return _norm_date(str(value or "").strip())
+    if key in ("title", "location", "note"):
+        return str(value or "").strip()
+    if key == "done":
+        return bool(value)
+    return value
+
+
 def _normalize(name, item):
-    """coerce + default fields so every item is well-formed. fails loud on no title."""
-    title = str(item.get("title", "")).strip()
+    """coerce + default every field so the stored item is well-formed. loud on no title."""
+    title = _coerce(name, "title", item.get("title"))
     if not title:
         raise ValueError("title is required")
-    now = datetime.now().isoformat(timespec="seconds")
-    base = {"id": uuid4().hex[:12], "title": title, "created": now}
-    if name == "achievements":
-        d = str(item.get("date") or "").strip() or date.today().isoformat()
-        base.update(date=_norm_date(d), note=str(item.get("note", "")).strip())
-    elif name == "todos":
-        due = str(item.get("due") or "").strip()
-        base.update(done=bool(item.get("done", False)),
-                    due=_norm_date(due) if due else "")
-    elif name == "appointments":
-        base.update(when=_norm_when(str(item.get("when") or "").strip()),
-                    location=str(item.get("location", "")).strip(),
-                    note=str(item.get("note", "")).strip(),
-                    recur=_norm_recur(item.get("recur")))
+    base = {"id": uuid4().hex[:12], "title": title,
+            "created": datetime.now().isoformat(timespec="seconds")}
+    for key in PATCHABLE[name]:
+        if key != "title":
+            base[key] = _coerce(name, key, item.get(key))
     return base
 
 
@@ -253,21 +264,8 @@ def update_item(name, item_id, patch):
             if it.get("id") == item_id:
                 allowed = PATCHABLE.get(name, ())
                 for k, v in patch.items():
-                    if k not in allowed:
-                        continue
-                    # validate date-ish fields so a bad ui/llm value can't store a
-                    # malformed date/rule that crashes occurrence expansion later.
-                    if k == "recur":
-                        it[k] = _norm_recur(v)
-                    elif k == "when":
-                        it[k] = _norm_when(str(v or "").strip())
-                    elif k == "due":
-                        sv = str(v or "").strip()
-                        it[k] = _norm_date(sv) if sv else ""
-                    elif k == "date":
-                        it[k] = _norm_date(str(v or "").strip())
-                    else:
-                        it[k] = v
+                    if k in allowed:
+                        it[k] = _coerce(name, k, v)
                 found = it
                 break
         if found is None:
@@ -289,7 +287,7 @@ def _caldav_update(item_id, patch):
     for k, v in patch.items():
         if k not in allowed:
             continue
-        nv = _norm_recur(v) if k == "recur" else (_norm_when(v) if k == "when" else v)
+        nv = _coerce("appointments", k, v)
         if nv != cur.get(k):
             cur[k] = nv
             changed.add(k)
