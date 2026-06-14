@@ -76,8 +76,12 @@ def _load_last(now):
 def _save_last(now):
     try:
         store._ensure()
-        STATE.write_text(now.isoformat(timespec="seconds"), "utf-8")
-        STATE.chmod(0o600)
+        # atomic: a crash mid-write must not truncate the state file (which would
+        # drop the missed-reminder window). write to .tmp then rename.
+        tmp = STATE.with_suffix(".tmp")
+        tmp.write_text(now.isoformat(timespec="seconds"), "utf-8")
+        tmp.chmod(0o600)
+        os.replace(tmp, STATE)
     except OSError:
         pass
 

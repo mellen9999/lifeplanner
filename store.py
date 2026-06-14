@@ -9,7 +9,7 @@ import os
 import stat
 import time
 from calendar import monthrange
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -137,8 +137,11 @@ def _read_raw(name, fallback):
         return fallback
     try:
         return json.loads(p.read_text("utf-8"))
-    except (json.JSONDecodeError, OSError):
-        # never crash on a corrupt/locked file — fail safe to the default
+    except json.JSONDecodeError:
+        # corrupt/unparseable file — fail safe to the default. an OSError (perms,
+        # FS error) is deliberately NOT caught: swallowing it would let a
+        # read-modify-write (e.g. add_item) overwrite real data with an empty
+        # list. surface it loudly so a transient fault can't masquerade as "no data".
         return fallback
 
 
@@ -166,7 +169,10 @@ def _cache_write(items):
 
 
 def _cache_read():
-    items = _read_raw("appointments.cache", [])
+    try:
+        items = _read_raw("appointments.cache", [])
+    except OSError:
+        return []  # cache is best-effort; a read fault just means "no cache"
     return items if isinstance(items, list) else []
 
 
@@ -201,7 +207,11 @@ def list_items(name):
     if name == "appointments" and _CALDAV is not None:
         return _caldav_list()
     items = _read_raw(name, [])
-    return items if isinstance(items, list) else []
+    if not isinstance(items, list):
+        return []
+    # drop any non-dict element so a poisoned/partially-written file can't crash
+    # every caller that does item.get(...) downstream (state, day, occurrences).
+    return [it for it in items if isinstance(it, dict)]
 
 
 def _coerce(name, key, value):
@@ -541,7 +551,10 @@ def _rrule(recur, all_day):
 
 
 def _vevent(uid, summary, dtstart, all_day, desc, location, recur=""):
-    lines = ["BEGIN:VEVENT", f"UID:{uid}@lifeplanner"]
+    # DTSTAMP is REQUIRED by RFC5545 §3.6.1 — strict importers (radicale,
+    # thunderbird) reject events without it.
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    lines = ["BEGIN:VEVENT", f"UID:{uid}@lifeplanner", f"DTSTAMP:{stamp}"]
     if all_day:
         lines.append(f"DTSTART;VALUE=DATE:{dtstart:%Y%m%d}")
     else:
@@ -592,6 +605,10 @@ def _write_ics(dst, blob):
     # line endings into \r\r\n. atomic via temp + replace.
     tmp = dst.with_suffix(".tmp")
     tmp.write_bytes(blob)
+    try:
+        tmp.chmod(0o600)  # appointment titles are private (health/legal)
+    except OSError:
+        pass
     os.replace(tmp, dst)
 
 

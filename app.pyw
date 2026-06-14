@@ -6,6 +6,7 @@ single-instance: binds 127.0.0.1:PORT; if that fails an instance is already up,
 so we just open the browser to it and exit. localhost-only = no lan exposure.
 """
 
+import hmac
 import json
 import os
 import secrets
@@ -74,6 +75,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        # defense-in-depth: no sniffing, no framing, no referrer leak, and a CSP
+        # that matches the app (all first-party files, no inline/eval, no embeds).
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Content-Security-Policy",
+                         "default-src 'self'; base-uri 'none'; "
+                         "form-action 'self'; frame-ancestors 'none'")
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
@@ -82,7 +91,10 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(obj, ensure_ascii=False), "application/json; charset=utf-8")
 
     def _body(self):
-        n = int(self.headers.get("Content-Length", 0) or 0)
+        try:
+            n = int(self.headers.get("Content-Length", 0) or 0)
+        except (TypeError, ValueError):
+            return None  # malformed Content-Length → treated as bad request
         if not n:
             return {}
         if n > MAX_BODY:
@@ -98,12 +110,14 @@ class Handler(BaseHTTPRequestHandler):
     def _authed(self):
         """gate the data surfaces; static assets stay open (see _load_token)."""
         u = urlparse(self.path)
-        bearer = self.headers.get("Authorization", "") == f"Bearer {TOKEN}"
+        bearer = hmac.compare_digest(self.headers.get("Authorization", ""),
+                                     f"Bearer {TOKEN}")
         if u.path.startswith("/api/"):
             return bearer
         if u.path == "/lifeplanner.ics":
             # calendar clients can't set headers — accept ?token= too
-            return bearer or parse_qs(u.query).get("token", [""])[0] == TOKEN
+            return bearer or hmac.compare_digest(
+                parse_qs(u.query).get("token", [""])[0], TOKEN)
         return True
 
     # -- routing --------------------------------------------------------------

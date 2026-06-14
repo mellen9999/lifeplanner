@@ -5,6 +5,7 @@ each run uses a throwaway data dir so it never touches real data.
 """
 
 import os
+import stat
 import sys
 import tempfile
 import unittest
@@ -212,6 +213,57 @@ class StoreTest(unittest.TestCase):
                         "recur": {"freq": "weekly", "interval": 2}})
         ics = store.build_ics()
         self.assertIn("RRULE:FREQ=WEEKLY;INTERVAL=2", ics)
+
+    # ---- bulletproof: a poisoned/partial file must not crash or destroy data ----
+    def test_non_dict_entries_are_filtered(self):
+        # a partially-written or hand-corrupted file with non-dict elements must
+        # not crash every caller that does item.get(...) downstream.
+        store._path("todos").write_text(
+            '[{"id":"a","title":"ok","done":false}, 42, "junk", null]', "utf-8")
+        items = store.list_items("todos")
+        self.assertEqual([i["title"] for i in items], ["ok"])
+        store.state()              # aggregate views must survive the poison too
+        store.day("2026-06-20")
+
+    def test_read_error_is_not_silent_empty(self):
+        # a real read fault (here: the path is a directory) must raise, NOT return
+        # an empty list — silently returning [] would let add_item overwrite the
+        # real file with a single item. JSONDecodeError still falls back (above).
+        p = store._path("todos")
+        if p.exists():
+            p.unlink()
+        p.mkdir()
+        try:
+            with self.assertRaises(OSError):
+                store.list_items("todos")
+        finally:
+            p.rmdir()
+
+    # ---- privacy: generated .ics carries health/legal titles, keep it 0600 ----
+    def test_ics_file_is_private(self):
+        store.add_item("appointments", {"title": "dr lin", "when": "2026-06-24"})
+        self.assertTrue(store.ICS.exists())
+        self.assertEqual(stat.S_IMODE(os.stat(store.ICS).st_mode), 0o600)
+
+    # ---- RFC5545: DTSTAMP is required in every VEVENT ----
+    def test_ics_every_vevent_has_dtstamp(self):
+        store.add_item("appointments", {"title": "x", "when": "2026-06-24 09:00"})
+        store.add_item("todos", {"title": "y", "due": "2026-06-25"})
+        ics = store.build_ics()
+        self.assertEqual(ics.count("DTSTAMP:"), ics.count("BEGIN:VEVENT"))
+
+    # ---- recurrence edges that are easy to break and have no guard ----
+    def test_monthly_interval_quarterly(self):
+        a = {"when": "2026-01-15", "recur": {"freq": "monthly", "interval": 3}}
+        occ = store.occurrences_in(a, "2026-01-01", "2026-12-31")
+        self.assertEqual(occ, ["2026-01-15", "2026-04-15", "2026-07-15", "2026-10-15"])
+
+    def test_monthly_feb29_skips_nonleap_feb(self):
+        a = {"when": "2024-02-29", "recur": {"freq": "monthly", "interval": 1}}
+        occ = store.occurrences_in(a, "2025-01-01", "2025-12-31")
+        self.assertNotIn("2025-02-29", occ)   # 2025 is not a leap year
+        self.assertIn("2025-01-29", occ)
+        self.assertIn("2025-03-29", occ)
 
 
 if __name__ == "__main__":
