@@ -182,6 +182,27 @@ self-hostable so your data stays private).
 
 it's stateful (each reminder fires once) and does nothing without the env vars, so it's fully optional.
 
+## nudges — the forcing function (optional)
+
+a planner you have to remember to open is just a todo list. `nudge.py` reaches out instead: a
+**daily standup** ("2 overdue · 3d since a win") and a **weekly review** pushed to your phone, with
+overdue alerts that **escalate** the longer you ignore them — 1-2 days normal, 3-6 high priority,
+**7+ days urgent (bypasses do-not-disturb, your phone rings).** ignoring becomes expensive.
+
+it rides the same ntfy setup as reminders. run it on a timer (every ~15 min):
+
+```sh
+LIFEPLANNER_NTFY_SERVER=http://your-ntfy:2587 \
+LIFEPLANNER_NTFY_TOPIC=your-secret-topic \
+LIFEPLANNER_URL=http://your-host:8765 \
+python3 nudge.py
+```
+
+it only pushes when something's actually slipping (no nagging on a clean day), fires each nudge at
+most once per day / per week, and does nothing without the env vars — fully optional. tune the timing
+with `LIFEPLANNER_STANDUP_HOUR` (default 8), `LIFEPLANNER_REVIEW_DOW` (mon=0, default 6=sun),
+`LIFEPLANNER_REVIEW_HOUR` (default 18); set `LIFEPLANNER_NUDGE=off` to silence it.
+
 ## configuration
 
 all optional, via environment variables:
@@ -201,6 +222,9 @@ store.py         shared data layer — atomic writes, file lock, .ics generation
 mcp_server.py    mcp server (assistant's door; needs the mcp sdk)
 caldav_store.py  optional caldav backend for two-way phone sync (needs icalendar/defusedxml)
 reminders.py     optional ntfy push reminders (run on a timer)
+nudge.py         optional daily standup + weekly review pushes (the forcing function)
+notify.py        shared ntfy push helper (reminders + nudge publish through it)
+review.py        planning-partner derivations (what's slipping / how a period went)
 web/             ui — vanilla html / css / js
 tests/           test suite (python3 -m unittest discover -s tests)
 launch.sh        linux/mac launcher        launch.bat   windows launcher

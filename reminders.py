@@ -12,15 +12,12 @@ reminders fire for the next occurrence of each appointment (recurrence expanded)
 timed appts → at each offset before the time; all-day appts → evening before + morning of.
 """
 
-import json
 import os
-import urllib.request
 from datetime import date, datetime, time, timedelta
 
+import notify
 import store
 
-SERVER = os.environ.get("LIFEPLANNER_NTFY_SERVER", "").strip().rstrip("/")
-TOPIC = os.environ.get("LIFEPLANNER_NTFY_TOPIC", "").strip()
 # positive minute-offsets only — a negative offset would fire *after* the appt and
 # never match the once-only gate, so it's silently dropped here rather than later.
 OFFSETS = sorted({int(x) for x in os.environ.get("LIFEPLANNER_REMINDERS", "1440,60").split(",")
@@ -53,15 +50,6 @@ def _fires_for(occ_when):
         yield datetime.combine(d, time(8, 0)), "today", when_text
 
 
-def _push(title, message):
-    body = json.dumps({
-        "topic": TOPIC, "title": title, "message": message,
-        "priority": 4, "tags": ["alarm_clock"],
-    }).encode("utf-8")
-    req = urllib.request.Request(SERVER + "/", data=body)
-    urllib.request.urlopen(req, timeout=10).read()
-
-
 def _load_last(now):
     try:
         # always naive (drop any tz offset) so it compares with datetime.now()
@@ -87,7 +75,7 @@ def _save_last(now):
 
 
 def main():
-    if not (SERVER and TOPIC):
+    if not notify.configured():
         return
     now = datetime.now().replace(microsecond=0)
     last = _load_last(now)
@@ -99,7 +87,8 @@ def main():
             for fire_dt, label, when_text in _fires_for(occ):
                 if last < fire_dt <= now:  # became due since the last check → fire once
                     try:
-                        _push(title, f"{label} · {when_text}")
+                        notify.send(title, f"{label} · {when_text}",
+                                    priority=4, tags=["alarm_clock"])
                     except OSError:  # urllib URLError → ntfy/network down
                         ok = False   # don't advance state; retry the window next run
     if ok:  # only advance past reminders we actually delivered → never miss one
