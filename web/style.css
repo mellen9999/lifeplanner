@@ -112,6 +112,9 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .tick:empty:hover::after { content: "✓"; opacity: .4; }
 .empty { color: var(--muted); padding: 18px 10px; border: 1px dashed var(--line); }
 .count { color: var(--muted); font-size: 13px; margin-left: 8px; }
+.toggle-done { cursor: pointer; user-select: none; padding: 0 4px; }
+.toggle-done:hover { background: var(--inv-bg); color: var(--inv-fg); }
+.toggle-done:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* type dots/squares */
 .mk { display: inline-block; width: 8px; height: 8px; flex: 0 0 auto; }

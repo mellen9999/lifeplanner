@@ -24,6 +24,8 @@ let editing = null;           // id of the item being edited inline
 let calCursor = startOfMonth(new Date());
 let selDay = iso(new Date()); // selected calendar day
 let pendingDelete = false;    // first 'd' of 'dd'
+let showDone = false;         // todos: reveal the collapsed "done" pile
+try { showDone = localStorage.getItem("lp-show-done") === "1"; } catch {}
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -204,7 +206,7 @@ function setView(v) {
 
 function currentList() {
   if (view === "achievements") return state.achievements;
-  if (view === "todos") return sortedTodos();
+  if (view === "todos") return visibleTodos();
   if (view === "appointments") return state.appointments;
   return [];
 }
@@ -212,6 +214,13 @@ function currentList() {
 function sortedTodos() {
   return [...state.todos].sort((a, b) =>
     (a.done - b.done) || ((a.due || "9999") > (b.due || "9999") ? 1 : -1));
+}
+
+// what the todos list actually shows: active always, the done pile only when
+// expanded. done stays sorted to the bottom so the active/done boundary is clean.
+function visibleTodos() {
+  const all = sortedTodos();
+  return showDone ? all : all.filter(t => !t.done);
 }
 
 // ---- render -----------------------------------------------------------------
@@ -580,15 +589,32 @@ function renderTodos() {
   const root = document.getElementById("todos");
   clear(root);
   const open = state.todos.filter(t => !t.done).length;
+  const done = state.todos.length - open;
   const h = el("h2", "section-h", "todos / reminders");
   h.appendChild(el("span", "count", `${open} open`));
+  if (done) {
+    const toggle = el("span", "count toggle-done",
+      `· ${done} done ${showDone ? "▾" : "▸"}`);
+    toggle.setAttribute("role", "button");
+    toggle.setAttribute("aria-expanded", showDone ? "true" : "false");
+    toggle.tabIndex = 0;
+    toggle.title = showDone ? "hide completed" : "show completed";
+    const flip = () => {
+      showDone = !showDone; sel = -1;
+      try { localStorage.setItem("lp-show-done", showDone ? "1" : "0"); } catch {}
+      render();
+    };
+    toggle.onclick = flip;
+    toggle.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flip(); } };
+    h.appendChild(toggle);
+  }
   root.appendChild(h);
   root.appendChild(addRow([
     { name: "title", ph: "to do", cls: "title" },
     { name: "due", type: "date" },
   ], d => add("todos", d)));
   const body = el("div");
-  mountList(body, sortedTodos(), (t) => listRow(t, "todos", [
+  mountList(body, visibleTodos(), (t) => listRow(t, "todos", [
     el("span", "when", t.due ? t.due : "—"),
     buildBody(t.title, t.due && !t.done && t.due < todayIso() ? "overdue" : ""),
   ], { tick: true, done: t.done }), "nothing to do. press n to add.");
