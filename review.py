@@ -105,6 +105,41 @@ def _busiest(grid):
     return {"date": best, "items": best_n} if best else None
 
 
+def stats(start, end):
+    """aggregate totals over [start, end] inclusive — wins, active days, wins by
+    month, todos completed, routine completions, appointments. counts only (no raw
+    items), so it spans any range cheaply — built for long-term retrospection
+    ('how was 2024', all-time) where get_range's 60-day cap is too narrow."""
+    try:
+        s, e = date.fromisoformat(start[:10]), date.fromisoformat(end[:10])
+    except (TypeError, ValueError):
+        return {"error": "dates must be YYYY-MM-DD"}
+    if e < s:
+        s, e = e, s
+    si, ei = s.isoformat(), e.isoformat()
+    wins = [a for a in store.list_items("achievements")
+            if a.get("date") and si <= a["date"] <= ei]
+    by_month = {}
+    for a in wins:
+        by_month[a["date"][:7]] = by_month.get(a["date"][:7], 0) + 1
+    todos = store.list_items("todos")
+    todos_done = sum(1 for t in todos if not t.get("recur") and t.get("done")
+                     and si <= (t.get("done_at") or "") <= ei)
+    routine_done = sum(1 for t in todos if t.get("recur")
+                       for x in (t.get("done_dates") or []) if si <= x <= ei)
+    appts = sum(len(store.occurrences_in(a, si, ei))
+                for a in store.list_items("appointments"))
+    return {
+        "from": si, "to": ei,
+        "wins": len(wins),
+        "active_days": len({a["date"] for a in wins}),
+        "wins_by_month": dict(sorted(by_month.items())),
+        "todos_completed": todos_done,
+        "routine_completions": routine_done,
+        "appointments": appts,
+    }
+
+
 def review(days=7, today=None):
     """retrospective digest for the last `days` days (inclusive of today): what got
     done, what slipped, the wins, completion rate over what was due, busiest day,

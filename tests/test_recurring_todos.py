@@ -155,5 +155,30 @@ class RoutineReportTest(unittest.TestCase):
         self.assertEqual(titles, ["workout"])  # meds already ticked today → not listed
 
 
+class StatsTest(unittest.TestCase):
+    def setUp(self):
+        for name in store.ENTITIES + ("settings",):
+            p = store._path(name)
+            if p.exists():
+                p.unlink()
+        if store.LOCK.exists():
+            store.LOCK.unlink()
+
+    def test_stats_aggregates_any_range(self):
+        import review
+        store.add_item("achievements", {"title": "a", "date": "2024-03-05"})
+        store.add_item("achievements", {"title": "b", "date": "2024-03-20"})
+        store.add_item("achievements", {"title": "c", "date": "2024-08-01"})
+        store.add_item("achievements", {"title": "d", "date": "2025-01-01"})  # out of range
+        out = review.stats("2024-01-01", "2024-12-31")
+        self.assertEqual(out["wins"], 3)
+        self.assertEqual(out["active_days"], 3)
+        self.assertEqual(out["wins_by_month"], {"2024-03": 2, "2024-08": 1})
+
+    def test_stats_bad_dates(self):
+        import review
+        self.assertIn("error", review.stats("nope", "2024-01-01"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -73,6 +73,15 @@ def review_period(days: int = 7) -> dict:
 # ---- read -------------------------------------------------------------------
 
 @mcp.tool()
+def get_stats(start: str, end: str) -> dict:
+    """aggregate totals over ANY date range (YYYY-MM-DD), no size cap: wins, active
+    days, wins-by-month, todos completed, routine completions, appointments. use for
+    long-term retrospection — 'how was 2024', all-time trends — where get_range is
+    too narrow (it returns raw items, capped at 60 days; this returns counts)."""
+    return review_mod.stats(start, end)
+
+
+@mcp.tool()
 def get_overview() -> dict:
     """snapshot of the user's life right now: today's items, upcoming appointments,
     recent achievements, and open todo count. use this to check in / coach."""
