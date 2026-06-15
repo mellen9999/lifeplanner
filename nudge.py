@@ -94,6 +94,11 @@ def standup_text(slip):
     gap = slip.get("days_since_win")
     if gap is not None and gap >= 2:
         parts.append(f"{gap}d since a win")
+    routines = slip.get("routines_today") or []
+    if routines:
+        names = ", ".join(r["title"] for r in routines[:4])
+        more = f" +{len(routines) - 4}" if len(routines) > 4 else ""
+        parts.append(f"routines left: {names}{more}")
     today = slip.get("today")
     appts = [x["title"] for x in (slip.get("next_load") or [])
              if x.get("date") == today and x.get("kind") == "appointment"]
@@ -112,6 +117,13 @@ def review_text(rv):
     if sl:
         names = ", ".join(t["title"] for t in sl[:3])
         parts.append(f"{len(sl)} still open: {names}")
+    rt = rv.get("routine_total", 0)
+    if rt:
+        parts.append(f'routines: {rv.get("routine_completions", 0)}/{rt}')
+        # call out the worst-held routine so it's actionable, not just a number
+        worst = next(iter(rv.get("routines") or []), None)
+        if worst and worst["done"] / worst["total"] < 0.6:
+            parts.append(f'slipping: {worst["title"]} {worst["done"]}/{worst["total"]}')
     parts.append("open lifeplanner — plan the week")
     return "\n".join(parts)
 

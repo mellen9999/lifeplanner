@@ -121,5 +121,39 @@ class RecurringTodoTest(unittest.TestCase):
         self.assertIn("todo: routine", ics)      # routine always shown
 
 
+class RoutineReportTest(unittest.TestCase):
+    def setUp(self):
+        for name in store.ENTITIES + ("settings",):
+            p = store._path(name)
+            if p.exists():
+                p.unlink()
+        if store.LOCK.exists():
+            store.LOCK.unlink()
+
+    def test_review_routine_consistency(self):
+        import review
+        w = store.add_item("todos", {"title": "workout", "due": d(-6), "recur": "daily"})
+        for n in (-6, -4, -2):  # done 3 of the 7 days in the window
+            store.set_todo_done(w["id"], d(n), True)
+        store.add_item("todos", {"title": "meds", "due": d(-6), "recur": "daily"})  # 0/7
+        rv = review.review(days=7, today=T)
+        rs = {r["title"]: (r["done"], r["total"]) for r in rv["routines"]}
+        self.assertEqual(rs["workout"], (3, 7))
+        self.assertEqual(rs["meds"], (0, 7))
+        self.assertEqual(rv["routine_total"], 14)
+        self.assertEqual(rv["routine_completions"], 3)
+        # sorted worst-first → meds (0/7) before workout (3/7)
+        self.assertEqual(rv["routines"][0]["title"], "meds")
+
+    def test_whats_slipping_routines_today(self):
+        import review
+        store.add_item("todos", {"title": "workout", "due": T.isoformat(), "recur": "daily"})
+        done = store.add_item("todos", {"title": "meds", "due": T.isoformat(), "recur": "daily"})
+        store.set_todo_done(done["id"], T.isoformat(), True)
+        out = review.whats_slipping(today=T)
+        titles = [r["title"] for r in out["routines_today"]]
+        self.assertEqual(titles, ["workout"])  # meds already ticked today → not listed
+
+
 if __name__ == "__main__":
     unittest.main()

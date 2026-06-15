@@ -126,9 +126,20 @@ def review(days=7, today=None):
     # broader momentum: everything finished in-window, including undated todos.
     completed = [t for t in todos if not t.get("recur") and t.get("done")
                  and s <= (t.get("done_at") or "") <= e]
-    # routine momentum: how many routine-days got ticked across the window.
-    routine_done = sum(1 for t in todos if t.get("recur")
-                       for x in (t.get("done_dates") or []) if s <= x <= e)
+    # routine consistency: per routine, how many of its occurrences in the window
+    # got ticked (e.g. workout 4/7). this is the habit-tracker payoff — it shows
+    # which routines are holding and which are slipping.
+    routines = []
+    for t in todos:
+        if not t.get("recur"):
+            continue
+        total = len(store.todo_occurrences(t, s, e))
+        if not total:
+            continue
+        done = sum(1 for x in (t.get("done_dates") or []) if s <= x <= e)
+        routines.append({"title": t.get("title", ""), "done": done, "total": total})
+    routine_done = sum(r["done"] for r in routines)
+    routine_total = sum(r["total"] for r in routines)
 
     wins = [a for a in store.list_items("achievements")
             if a.get("date") and s <= a["date"] <= e]
@@ -149,6 +160,8 @@ def review(days=7, today=None):
         "completion_rate": round(len(done_due) / len(due_in), 2) if due_in else None,
         "wins_count": len(wins),
         "routine_completions": routine_done,
+        "routine_total": routine_total,
+        "routines": sorted(routines, key=lambda r: r["done"] / r["total"]),
         "busiest_day": _busiest(grid),
         "days_since_win": win_gap,
     }

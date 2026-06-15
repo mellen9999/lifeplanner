@@ -738,6 +738,13 @@ function renderWeekRecap() {
     row.appendChild(busyEl);
   }
 
+  if (d.routine_total) {
+    const rEl = el("span", "pp-recap-item");
+    rEl.appendChild(el("span", "pp-recap-n", `${d.routine_completions ?? 0}/${d.routine_total}`));
+    rEl.appendChild(el("span", "pp-recap-l", " routines"));
+    row.appendChild(rEl);
+  }
+
   wrap.appendChild(row);
   return wrap;
 }
