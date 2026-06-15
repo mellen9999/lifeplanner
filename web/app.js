@@ -129,6 +129,27 @@ function toggleTodo(t, dateIso) {
   else patch("todos", t.id, { done: !t.done });
 }
 
+// urgency by deadline pressure (drives row colour): red = due today/overdue,
+// yellow = due soon (1-3 days), peaceful = lots of runway (4+ days) or undated.
+// routines aren't deadlines, so they get their own neutral tier.
+function todoUrgency(t) {
+  if (t.recur) return "routine";
+  if (!t.due) return "peaceful";
+  const days = dayDiff(todayIso(), t.due);
+  return days <= 0 ? "red" : days <= 3 ? "yellow" : "peaceful";
+}
+const URG_RANK = { red: 0, yellow: 1, routine: 2, peaceful: 3 };
+// a one-off earns a place on TODAY when it's actionable now — overdue/soon (≤3d)
+// or undated ("anytime"). a far-future deadline stays parked off today until it nears.
+function todoOnToday(t) { return !t.due || dayDiff(todayIso(), t.due) <= 3; }
+// the todos page order: open before done, most-urgent first, then by due date.
+function orderedTodos() {
+  return applySearch(visibleTodos()).slice().sort((a, b) =>
+    ((a.done ? 1 : 0) - (b.done ? 1 : 0))
+    || (URG_RANK[todoUrgency(a)] - URG_RANK[todoUrgency(b)])
+    || ((a.due || "9999") > (b.due || "9999") ? 1 : -1));
+}
+
 // ---- api --------------------------------------------------------------------
 
 const TOKEN = document.querySelector('meta[name="lp-token"]')?.content || "";
@@ -315,7 +336,7 @@ function setView(v) {
 
 function currentList() {
   if (view === "achievements") return applySearch(state.achievements);
-  if (view === "todos") return applySearch(visibleTodos());
+  if (view === "todos") return orderedTodos();
   if (view === "appointments") { const o = orderedAppointments(applySearch(state.appointments)); return [...o.up, ...o.past]; }
   return [];
 }
@@ -680,14 +701,16 @@ function renderToday() {
     ? appts.map(a => agendaLine("appt", (timeOf(a.when) ? timeOf(a.when) + "  " : "") + a.title, a.location))
     : [el("div", "muted small", "nothing scheduled")]));
 
-  // todos: overdue one-offs, due-today one-offs, and today's routines (recurring)
-  const overdue = state.todos.filter(x => !x.recur && !x.done && x.due && x.due < t)
-    .sort((a, b) => (a.due > b.due ? 1 : -1));
-  const dueToday = state.todos.filter(x => !x.recur && !x.done && x.due === t);
+  // today's actionable one-offs (overdue / soon / anytime — far-future stays parked),
+  // most-urgent first and colour-coded, then today's routines. this is the "what's
+  // next" list: the top red item is literally the next thing to do.
+  const actionable = state.todos.filter(x => !x.recur && !x.done && todoOnToday(x))
+    .sort((a, b) => (URG_RANK[todoUrgency(a)] - URG_RANK[todoUrgency(b)])
+      || ((a.due || "9999") > (b.due || "9999") ? 1 : -1));
   const routines = state.todos.filter(x => x.recur && todoOccursOn(x, t));
   const todoLines = [];
-  overdue.forEach(x => todoLines.push(agendaTodo(x, `overdue · ${x.due}`)));
-  dueToday.forEach(x => todoLines.push(agendaTodo(x, "due today")));
+  actionable.forEach(x => todoLines.push(agendaTodo(x,
+    !x.due ? "anytime" : x.due < t ? `overdue · ${x.due}` : x.due === t ? "due today" : `due ${x.due}`)));
   routines.forEach(x => todoLines.push(agendaTodo(x, "routine")));
   grid.appendChild(agendaCard("todos due", todoLines.length ? todoLines
     : [el("div", "muted small", "nothing due — nice")]));
@@ -739,7 +762,7 @@ function agendaLine(kind, text, sub) {
 function agendaTodo(x, label) {
   const ti = todayIso();
   const doneNow = todoDoneOn(x, ti);  // routine → done today; one-off → global flag
-  const li = el("div", "li" + (label.startsWith("overdue") ? " overdue" : "") + (doneNow ? " done" : ""));
+  const li = el("div", "li urg-" + todoUrgency(x) + (doneNow ? " done" : ""));
   li.appendChild(tickEl(doneNow, () => toggleTodo(x, ti)));
   const body = el("div");
   body.appendChild(el("span", null, x.title));
@@ -988,17 +1011,20 @@ function renderTodos() {
   ], d => add("todos", { title: d.title, due: d.due, recur: parseRepeat(d.repeat, d.until) })));
   const body = el("div");
   const ti = todayIso();
-  mountList(body, applySearch(visibleTodos()), (t) => {
-    // routines: when-col shows their next occurrence, sub shows the cadence, and the
-    // tick reflects *today*. one-off: due date + done/overdue sub, global tick.
+  // sorted most-urgent-first, with a colour bar per row (red/yellow/peaceful) so the
+  // top of the list literally is "what's next". everything shows here (the page is
+  // the full picture); the today view is the filtered actionable subset.
+  mountList(body, orderedTodos(), (t) => {
     const shown = t.recur ? (nextOccurrence({ when: t.due, recur: t.recur }, ti) || t.due) : t.due;
     const sub = t.recur ? recurLabel(t.recur, t.due)
       : (t.done ? (t.done_at ? `done ${t.done_at}` : "done")
         : (t.due && t.due < ti ? "overdue" : ""));
-    return listRow(t, "todos", [
+    const row = listRow(t, "todos", [
       el("span", "when", shown ? shown.slice(0, 10) : "—"),
       buildBody(t.title, sub),
     ], { tick: true, tickDate: ti, done: t.recur ? todoDoneOn(t, ti) : t.done });
+    if (!t.done) row.classList.add("urg-" + todoUrgency(t));
+    return row;
   }, "nothing to do. press n to add.");
   root.appendChild(body);
 }

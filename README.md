@@ -50,9 +50,13 @@ five sections (number keys switch them):
    to keep the run alive, but miss with no shields left and the streak resets to 0 — the shields are
    shown so the grace is never hidden. log small wins often; watching the streak grow is the point.
 5. **todos** — things to do; give one a due date and it becomes a reminder on the calendar + phone.
-   set **repeat** on one to make it a daily/weekly **routine** (eat lunch, workout, meds) — it shows up
-   every day in "todos due" and you tick it off per-day, so it's back tomorrow. routines never count as
-   "overdue" (a missed day is just a day), and the streak of completions is yours to keep.
+   each todo carries a **colour by deadline pressure**: red = due today / overdue, yellow = due soon
+   (within ~3 days), calm green = plenty of time or no date — so the most urgent thing is obvious at a
+   glance, and the top of the list is literally what to do next. **today** shows only what's actionable
+   now (a far-future deadline stays parked off today until it nears); the **todos page** shows everything,
+   urgency-sorted. set **repeat** to make a todo a daily/weekly **routine** (eat lunch, workout, meds) — it
+   shows up every day in "todos due", ticked off per-day so it's back tomorrow; routines never count as
+   "overdue" (a missed day is just a day).
 
 every item can be edited in place (`e` or double-click) or deleted (`×` / `d d`, undo with `u`).
 nothing needs saving — it's written to disk the moment you add it.

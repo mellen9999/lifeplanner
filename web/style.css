@@ -127,6 +127,14 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .row .del.armed { color: #fff; background: #d70000; padding: 0 8px; margin-left: auto;
   font-size: 12px; letter-spacing: .03em; }
 .row .del.armed:hover { color: #fff; background: #ff5f5f; }
+
+/* todo urgency: a left bar by deadline pressure (inset = no layout shift). red = due
+   today/overdue, yellow = soon (≤3d), peaceful (calm green) = plenty of time / undated,
+   routine = neutral. the colour bar makes "what's next" readable at a glance. */
+.row.urg-red, .li.urg-red { box-shadow: inset 3px 0 0 #ff5f5f; padding-left: 9px; }
+.row.urg-yellow, .li.urg-yellow { box-shadow: inset 3px 0 0 #ffd700; padding-left: 9px; }
+.row.urg-peaceful, .li.urg-peaceful { box-shadow: inset 3px 0 0 #5faf87; padding-left: 9px; }
+.row.urg-routine, .li.urg-routine { box-shadow: inset 3px 0 0 var(--muted); padding-left: 9px; }
 .row.done .title { text-decoration: line-through; color: var(--muted); }
 .tick {
   flex: 0 0 auto; width: 15px; height: 15px; border: 1px solid currentColor;
