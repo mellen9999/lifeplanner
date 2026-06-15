@@ -12,6 +12,7 @@ const VIEWS = ["today", "calendar", "appointments", "achievements", "todos"];
 const REPEAT_OPTIONS = [
   { value: "", label: "once" },
   { value: "daily", label: "daily" },
+  { value: "daily:2", label: "every other day" },
   { value: "weekly", label: "weekly" },
   { value: "weekly:2", label: "every other week" },
   { value: "monthly", label: "monthly" },
@@ -111,7 +112,7 @@ function recurLabel(r, anchorIso) {
   if (r.freq === "weekly") {
     const dow = DOW[(new Date(anchorIso + "T00:00").getDay() + 6) % 7];
     base = (iv === 2 ? "every other " : iv === 1 ? "every " : `every ${iv} weeks · `) + dow;
-  } else if (r.freq === "daily") base = iv === 1 ? "every day" : `every ${iv} days`;
+  } else if (r.freq === "daily") base = iv === 1 ? "every day" : iv === 2 ? "every other day" : `every ${iv} days`;
   else base = iv === 1 ? "monthly" : `every ${iv} months`;
   return r.until ? `${base} · until ${r.until}` : base;
 }
@@ -425,7 +426,7 @@ function makeField(f) {
 // "before thursday"). the native picker stays for exact dates.
 function dateChips(input) {
   const wrap = el("div", "datechips");
-  [["today", 0], ["+1d", 1], ["+3d", 3], ["+1wk", 7], ["✕", null]].forEach(([label, n]) => {
+  [["today", 0], ["tmrw", 1], ["+2d", 2], ["+3d", 3], ["+4d", 4], ["+1wk", 7], ["✕", null]].forEach(([label, n]) => {
     const b = el("button", null, label); b.type = "button";
     b.title = n === null ? "clear date" : (n === 0 ? "due today" : `due in ${n} day${n > 1 ? "s" : ""}`);
     b.onclick = () => { input.value = n === null ? "" : addDays(todayIso(), n); };
