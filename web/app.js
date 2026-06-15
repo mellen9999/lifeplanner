@@ -117,6 +117,15 @@ function recurLabel(r, anchorIso) {
   return r.until ? `${base} · until ${r.until}` : base;
 }
 
+// label for a routine: plain daily ones just read "routine" (cleaner than "every
+// day"); anything with a real cadence (every other day, weekly, until-date) shows it,
+// so a weekly weigh-in isn't mistaken for a daily.
+function routineLabel(t) {
+  const r = t.recur;
+  if (r && r.freq === "daily" && (r.interval || 1) === 1 && !r.until) return "routine";
+  return recurLabel(r, t.due);
+}
+
 // recurring todos (routines) are completed per-day; one-off todos use a global flag.
 // these mirror store.todo_done_on / todo_occurrences (anchor = the todo's `due`).
 function todoDoneOn(t, dateIso) { return t.recur ? (t.done_dates || []).includes(dateIso) : !!t.done; }
@@ -731,7 +740,7 @@ function renderToday() {
   const todoLines = [];
   actionable.forEach(x => todoLines.push(agendaTodo(x,
     !x.due ? "anytime" : x.due < t ? `overdue · ${x.due}` : x.due === t ? "due today" : `due ${x.due}`)));
-  routines.forEach(x => todoLines.push(agendaTodo(x, "routine")));
+  routines.forEach(x => todoLines.push(agendaTodo(x, routineLabel(x))));
   grid.appendChild(agendaCard("todos due", todoLines.length ? todoLines
     : [el("div", "muted small", "nothing due — nice")]));
 
@@ -1036,7 +1045,7 @@ function renderTodos() {
   // the full picture); the today view is the filtered actionable subset.
   mountList(body, orderedTodos(), (t) => {
     const shown = t.recur ? (nextOccurrence({ when: t.due, recur: t.recur }, ti) || t.due) : t.due;
-    const sub = t.recur ? recurLabel(t.recur, t.due)
+    const sub = t.recur ? routineLabel(t)
       : (t.done ? (t.done_at ? `done ${t.done_at}` : "done")
         : (t.due && t.due < ti ? "overdue" : ""));
     const row = listRow(t, "todos", [
