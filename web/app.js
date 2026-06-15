@@ -145,9 +145,12 @@ const URG_RANK = { red: 0, yellow: 1, routine: 2, peaceful: 3 };
 function todoOnToday(t) { return !t.due || dayDiff(todayIso(), t.due) <= 3; }
 // the todos page order: open before done, most-urgent first, then by due date.
 function orderedTodos() {
+  // open before done, then by urgency tier, then manual order (0 = unset → end),
+  // then due. manual order is what gives routines a logical day-sequence.
   return applySearch(visibleTodos()).slice().sort((a, b) =>
     ((a.done ? 1 : 0) - (b.done ? 1 : 0))
     || (URG_RANK[todoUrgency(a)] - URG_RANK[todoUrgency(b)])
+    || ((a.order || 1e9) - (b.order || 1e9))
     || ((a.due || "9999") > (b.due || "9999") ? 1 : -1));
 }
 
@@ -723,7 +726,8 @@ function renderToday() {
   const actionable = state.todos.filter(x => !x.recur && !x.done && todoOnToday(x))
     .sort((a, b) => (URG_RANK[todoUrgency(a)] - URG_RANK[todoUrgency(b)])
       || ((a.due || "9999") > (b.due || "9999") ? 1 : -1));
-  const routines = state.todos.filter(x => x.recur && todoOccursOn(x, t));
+  const routines = state.todos.filter(x => x.recur && todoOccursOn(x, t))
+    .sort((a, b) => (a.order || 1e9) - (b.order || 1e9));  // logical day-order
   const todoLines = [];
   actionable.forEach(x => todoLines.push(agendaTodo(x,
     !x.due ? "anytime" : x.due < t ? `overdue · ${x.due}` : x.due === t ? "due today" : `due ${x.due}`)));

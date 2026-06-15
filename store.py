@@ -67,7 +67,7 @@ ENTITIES = ("achievements", "todos", "appointments")
 # stray ui/llm key can't pollute stored items. id/created are never patchable.
 PATCHABLE = {
     "achievements": ("title", "date", "note"),
-    "todos": ("title", "done", "due", "recur"),
+    "todos": ("title", "done", "due", "recur", "order"),
     "appointments": ("title", "when", "location", "note", "recur"),
 }
 RECUR_FREQS = ("daily", "weekly", "monthly")
@@ -233,6 +233,11 @@ def _coerce(name, key, value):
         return str(value or "").strip()
     if key == "done":
         return bool(value)
+    if key == "order":  # manual sort position (0 = unset → sorts to the end)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
     return value
 
 
