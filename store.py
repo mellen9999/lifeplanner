@@ -334,6 +334,21 @@ def set_todo_done(item_id, on_date, done):
     return t
 
 
+def reorder_todos(ids):
+    """set each todo's manual order to its position in `ids` (1-based; others left
+    alone). one atomic write for a whole drag-reorder. order 0 = unset → sorts last."""
+    if not isinstance(ids, list):
+        return False
+    pos = {i: n + 1 for n, i in enumerate(ids) if isinstance(i, str)}
+    with FileLock():
+        items = list_items("todos")
+        for t in items:
+            if t.get("id") in pos:
+                t["order"] = pos[t["id"]]
+        _write_raw("todos", items)
+    return True
+
+
 def _caldav_update(item_id, patch):
     """patch an appointment in place on the server. only fields that actually
     changed are written, so editing (say) the title of a phone-made event never

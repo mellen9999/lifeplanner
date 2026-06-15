@@ -471,6 +471,46 @@ function addRow(fields, onSubmit) {
   return form;
 }
 
+// pointer-events drag-reorder for routine rows — works with mouse AND touch (html5
+// drag doesn't do touch). live-reorders the dom as you drag, persists on drop. only
+// routine rows ([data-routine]) participate, so they stay a contiguous block.
+let dragging = false;
+function makeRoutinesSortable(list) {
+  const rows = () => [...list.querySelectorAll('.row[data-routine]')];
+  list.querySelectorAll('.drag-handle').forEach(h => {
+    const dragEl = () => h.closest('.row');
+    let el0 = null;
+    h.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      el0 = dragEl(); dragging = true;
+      el0.classList.add('dragging');
+      try { h.setPointerCapture(e.pointerId); } catch {}
+    });
+    h.addEventListener('pointermove', (e) => {
+      if (!el0) return;
+      const others = rows().filter(r => r !== el0);
+      const after = others.find(r => {
+        const b = r.getBoundingClientRect();
+        return e.clientY < b.top + b.height / 2;
+      });
+      if (after) list.insertBefore(el0, after);
+      else { const last = others[others.length - 1]; if (last) list.insertBefore(el0, last.nextSibling); }
+    });
+    const end = async (e) => {
+      if (!el0) return;
+      el0.classList.remove('dragging');
+      try { h.releasePointerCapture(e.pointerId); } catch {}
+      const ids = rows().map(r => r.dataset.id);
+      el0 = null;
+      await api('POST', '/api/todos/reorder', { ids });
+      dragging = false;
+      await refresh();
+    };
+    h.addEventListener('pointerup', end);
+    h.addEventListener('pointercancel', () => { if (el0) { el0.classList.remove('dragging'); el0 = null; } dragging = false; });
+  });
+}
+
 function buildBody(title, sub) {
   const b = el("div", "body");
   b.appendChild(el("div", "title", title));
@@ -495,6 +535,12 @@ function listRow(item, entity, parts, opts = {}) {
   if (item.id === editing) return editRow(item, entity);
   const row = el("div", "row" + (opts.done ? " done" : ""));
   row.dataset.id = item.id;
+  if (opts.dragHandle) {  // grip to drag-reorder (routines) — leftmost on the row
+    const g = el("span", "drag-handle", "⠿");
+    g.title = "drag to reorder";
+    g.onclick = (e) => e.stopPropagation();
+    row.appendChild(g);
+  }
   if (opts.tick) {
     const dd = opts.tickDate || todayIso();  // which day's completion this tick toggles
     row.appendChild(tickEl(todoDoneOn(item, dd), () => toggleTodo(item, dd)));
@@ -1051,10 +1097,13 @@ function renderTodos() {
     const row = listRow(t, "todos", [
       el("span", "when", shown ? shown.slice(0, 10) : "—"),
       buildBody(t.title, sub),
-    ], { tick: true, tickDate: ti, done: t.recur ? todoDoneOn(t, ti) : t.done });
+    ], { tick: true, tickDate: ti, done: t.recur ? todoDoneOn(t, ti) : t.done, dragHandle: t.recur });
     if (!t.done) row.classList.add("urg-" + todoUrgency(t));
+    if (t.recur) row.dataset.routine = "1";
     return row;
   }, "nothing to do. press n to add.");
+  const listEl = body.querySelector(".list");
+  if (listEl) makeRoutinesSortable(listEl);
   root.appendChild(body);
 }
 
@@ -1351,7 +1400,7 @@ function wireBar() {
 
 let polling = false;
 async function poll() {
-  if (polling || editing || document.visibilityState !== "visible") return;
+  if (polling || editing || dragging || document.visibilityState !== "visible") return;
   polling = true;
   try {
     const { version } = await api("GET", "/api/version");

@@ -136,6 +136,13 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .row.urg-peaceful, .li.urg-peaceful { box-shadow: inset 3px 0 0 #5faf87; padding-left: 9px; }
 .row.urg-routine, .li.urg-routine { box-shadow: inset 3px 0 0 var(--muted); padding-left: 9px; }
 
+/* drag handle for reordering routines — touch-action:none so dragging it doesn't
+   scroll the page; pointer events drive the reorder (works on phone + desktop) */
+.drag-handle { color: var(--muted); cursor: grab; padding: 0 6px; touch-action: none;
+  user-select: none; font-size: 14px; line-height: 1; }
+.drag-handle:active { cursor: grabbing; }
+.row.dragging { opacity: .6; background: var(--field); }
+
 /* relative date quick-set chips next to a date field — dense, square, terminal */
 .datechips { display: inline-flex; gap: 4px; align-items: center; }
 .datechips button { font: inherit; font-size: 12px; background: var(--bg); color: var(--muted);

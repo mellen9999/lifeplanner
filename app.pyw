@@ -164,6 +164,11 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authed():
             return self._json(401, {"error": "unauthorized"})
         path = urlparse(self.path).path
+        if path == "/api/todos/reorder":
+            data = self._body()
+            if data is None:
+                return self._json(400, {"error": "bad json"})
+            return self._json(200, {"ok": store.reorder_todos(data.get("ids", []))})
         entity = self._entity(path, exact=True)
         if entity is None:
             return self._json(404, {"error": "not found"})
