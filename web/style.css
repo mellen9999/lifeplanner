@@ -123,6 +123,10 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .row .sub { color: var(--muted); font-size: 13px; }
 .row .del { margin-left: auto; color: var(--muted); cursor: pointer; padding: 0 4px; }
 .row:hover .del:hover, .row.sel .del:hover { color: var(--inv-bg); background: var(--inv-fg); }
+/* armed: first click turned × into a confirm. red = destructive, second click deletes. */
+.row .del.armed { color: #fff; background: #d70000; padding: 0 8px; margin-left: auto;
+  font-size: 12px; letter-spacing: .03em; }
+.row .del.armed:hover { color: #fff; background: #ff5f5f; }
 .row.done .title { text-decoration: line-through; color: var(--muted); }
 .tick {
   flex: 0 0 auto; width: 15px; height: 15px; border: 1px solid currentColor;

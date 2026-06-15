@@ -26,6 +26,8 @@ let editing = null;           // id of the item being edited inline
 let calCursor = startOfMonth(new Date());
 let selDay = iso(new Date()); // selected calendar day
 let pendingDelete = false;    // first 'd' of 'dd'
+let armedDelete = null;       // id of the row whose × is armed; needs a 2nd click
+let armedTimer = null;        // auto-disarm so a stale armed × can't linger
 let showDone = false;         // todos: reveal the collapsed "done" pile
 try { showDone = localStorage.getItem("lp-show-done") === "1"; } catch {}
 let lastDeleted = null;       // {entity, item} for single-level undo
@@ -176,6 +178,20 @@ async function patch(entity, id, data) {
 // delete with a one-shot undo. the undo only arms on a CONFIRMED delete: a
 // failed request shows the real error and leaves no stale undo — otherwise
 // pressing `u` would re-POST a still-present item and create a duplicate.
+// arm-then-confirm the × delete: first click highlights "delete?", second click
+// (or Enter) within 3s actually deletes. clicking another row's × re-arms that one.
+function armDelete(entity, item) {
+  if (armedTimer) { clearTimeout(armedTimer); armedTimer = null; }
+  if (armedDelete === item.id) {       // second click → confirm
+    armedDelete = null;
+    deleteWithUndo(entity, item);
+    return;
+  }
+  armedDelete = item.id;               // first click → arm + auto-disarm timer
+  armedTimer = setTimeout(() => { armedDelete = null; armedTimer = null; render(); }, 3000);
+  render();
+}
+
 async function deleteWithUndo(entity, item) {
   try {
     await api("DELETE", `/api/${entity}/${item.id}`);
@@ -285,6 +301,7 @@ function setView(v) {
   editing = null;
   // a half-armed delete must never carry across views and hit the wrong row
   pendingDelete = false;
+  armedDelete = null;
   // a filter belongs to the list it was typed in — don't carry it across views
   closeSearch(false);
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.view === v));
@@ -442,12 +459,15 @@ function listRow(item, entity, parts, opts = {}) {
   editBtn.onclick = doEdit;
   editBtn.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); doEdit(e); } };
   row.appendChild(editBtn);
-  const del = el("span", "del", "×");
-  del.title = "delete";
+  // two-step delete: first click arms (× → "delete?"), second click within the
+  // window confirms. no more one-click-and-it's-gone; undo (u) is still a backstop.
+  const armed = armedDelete === item.id;
+  const del = el("span", "del" + (armed ? " armed" : ""), armed ? "delete?" : "×");
+  del.title = armed ? "click again to delete" : "delete";
   del.setAttribute("role", "button");
-  del.setAttribute("aria-label", "delete");
+  del.setAttribute("aria-label", armed ? "confirm delete" : "delete");
   del.tabIndex = 0;
-  const doDel = (e) => { e.stopPropagation(); deleteWithUndo(entity, item); };
+  const doDel = (e) => { e.stopPropagation(); armDelete(entity, item); };
   del.onclick = doDel;
   del.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); doDel(e); } };
   row.appendChild(del);
@@ -1164,6 +1184,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (!help.hidden) { help.hidden = true; return; }
     if (editing) { editing = null; render(); return; }
+    if (armedDelete) { armedDelete = null; if (armedTimer) clearTimeout(armedTimer); render(); return; }
     if (typing) { document.activeElement.blur(); return; }
   }
   if (typing) return;
