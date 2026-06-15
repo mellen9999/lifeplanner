@@ -420,6 +420,20 @@ function makeField(f) {
   return i;
 }
 
+// one-tap relative date setters next to a date input — so "in 2 days" is a tap,
+// not a calendar hunt (matters most on the phone, where there's no claude to parse
+// "before thursday"). the native picker stays for exact dates.
+function dateChips(input) {
+  const wrap = el("div", "datechips");
+  [["today", 0], ["+1d", 1], ["+3d", 3], ["+1wk", 7], ["✕", null]].forEach(([label, n]) => {
+    const b = el("button", null, label); b.type = "button";
+    b.title = n === null ? "clear date" : (n === 0 ? "due today" : `due in ${n} day${n > 1 ? "s" : ""}`);
+    b.onclick = () => { input.value = n === null ? "" : addDays(todayIso(), n); };
+    wrap.appendChild(b);
+  });
+  return wrap;
+}
+
 function addRow(fields, onSubmit) {
   const form = el("form", "add");
   const inputs = {};
@@ -427,6 +441,7 @@ function addRow(fields, onSubmit) {
     const i = makeField(f);
     inputs[f.name] = i;
     form.appendChild(i);
+    if (f.chips) form.appendChild(dateChips(i));  // relative quick-set next to the field
   });
   const btn = el("button", null, "add"); btn.type = "submit";
   form.appendChild(btn);
@@ -1005,7 +1020,7 @@ function renderTodos() {
   root.appendChild(h);
   root.appendChild(addRow([
     { name: "title", ph: "to do", cls: "title" },
-    { name: "due", type: "date" },
+    { name: "due", type: "date", chips: true },
     { name: "repeat", type: "select", options: REPEAT_OPTIONS },
     { name: "until", type: "date" },
   ], d => add("todos", { title: d.title, due: d.due, recur: parseRepeat(d.repeat, d.until) })));
