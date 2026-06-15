@@ -26,6 +26,7 @@ let sel = -1;                 // selected list index in current section
 let editing = null;           // id of the item being edited inline
 let calCursor = startOfMonth(new Date());
 let selDay = iso(new Date()); // selected calendar day
+let hmYear = new Date().getFullYear();  // which year the wins heatmap shows
 let pendingDelete = false;    // first 'd' of 'dd'
 let armedDelete = null;       // id of the row whose × is armed; needs a 2nd click
 let armedTimer = null;        // auto-disarm so a stale armed × can't linger
@@ -933,17 +934,49 @@ function stat(n, label) {
   return s;
 }
 
+// a full calendar-year wins heatmap you can page back through, year by year — so
+// the whole history is visible forever, not just a rolling 6-month window. data is
+// kept indefinitely, so any past year graphs exactly as it happened.
 function renderHeatmap() {
   const counts = winCounts();
-  const WEEKS = 26;
   const today = new Date();
-  const start = new Date(today);
-  start.setDate(start.getDate() - ((today.getDay() + 6) % 7) - (WEEKS - 1) * 7); // monday, 26 wks back
+  const curYear = today.getFullYear();
+  const wrap = el("div", "heatmap");
+
+  // ◀ year ▶ + that year's total
+  let yearTotal = 0;
+  for (const ds in counts) if (ds.slice(0, 4) === String(hmYear)) yearTotal += counts[ds];
+  const head = el("div", "hm-head");
+  const prev = el("button", "hm-nav", "◀"); prev.title = "previous year";
+  prev.onclick = () => { hmYear--; render(); };
+  const next = el("button", "hm-nav", "▶"); next.title = "next year";
+  next.disabled = hmYear >= curYear;
+  next.onclick = () => { if (hmYear < curYear) { hmYear++; render(); } };
+  head.append(prev, el("span", "hm-year", String(hmYear)), next,
+    el("span", "hm-total", `${yearTotal} win${yearTotal === 1 ? "" : "s"}`));
+  wrap.appendChild(head);
+
+  // columns = weeks (mon–sun) spanning jan 1 → dec 31 of hmYear; days outside the
+  // year are padding so the calendar lines up. a month-label row sits on top.
+  const jan1 = new Date(hmYear, 0, 1);
+  const start = new Date(jan1);
+  start.setDate(jan1.getDate() - ((jan1.getDay() + 6) % 7)); // back to that week's monday
+  const dec31 = new Date(hmYear, 11, 31);
+  const months = el("div", "hm-months");
   const grid = el("div", "hm-grid");
-  for (let w = 0; w < WEEKS; w++) {
+  let lastMonth = -1;
+  for (let wk = 0; ; wk++) {
+    const colStart = new Date(start); colStart.setDate(start.getDate() + wk * 7);
+    if (colStart > dec31) break;
+    const lbl = el("div", "hm-mlabel");
+    if (colStart.getFullYear() === hmYear && colStart.getMonth() !== lastMonth) {
+      lbl.textContent = MONTHS[colStart.getMonth()].slice(0, 3); lastMonth = colStart.getMonth();
+    }
+    months.appendChild(lbl);
     const col = el("div", "hm-col");
     for (let dN = 0; dN < 7; dN++) {
-      const dt = new Date(start); dt.setDate(start.getDate() + w * 7 + dN);
+      const dt = new Date(colStart); dt.setDate(colStart.getDate() + dN);
+      if (dt.getFullYear() !== hmYear) { col.appendChild(el("div", "hm pad")); continue; }
       const ds = iso(dt);
       const c = counts[ds] || 0;
       const cell = el("div", "hm lvl" + Math.min(3, c));
@@ -953,14 +986,25 @@ function renderHeatmap() {
     }
     grid.appendChild(col);
   }
-  const wrap = el("div", "heatmap");
-  // colorblind/screen-reader fallback: the green scale isn't perceivable to all,
-  // so summarise the window (each cell still carries an exact title tooltip).
-  const total = Object.values(counts).reduce((s, n) => s + n, 0);
   wrap.setAttribute("role", "img");
-  wrap.setAttribute("aria-label", `wins over the last ${WEEKS} weeks: ${total} total`);
-  wrap.appendChild(grid);
+  wrap.setAttribute("aria-label", `wins in ${hmYear}: ${yearTotal} total`);
+  wrap.append(months, grid);
   return wrap;
+}
+
+// all-time remembrance line: totals that never reset, so the long arc is visible.
+function allTimeStats() {
+  const counts = winCounts();
+  const dates = Object.keys(counts).sort();
+  const total = state.achievements.length;
+  const activeDays = dates.length;
+  const since = dates[0];
+  const row = el("div", "alltime");
+  const add = (n, l) => { const s = el("span", "at-item"); s.append(el("span", "at-n", String(n)), el("span", "at-l", " " + l)); row.appendChild(s); };
+  add(total, "wins all-time");
+  add(activeDays, "active days");
+  if (since) { const s = el("span", "at-item"); s.append(el("span", "at-l", "since "), el("span", "at-n", since)); row.appendChild(s); }
+  return row;
 }
 
 // ---- appointments / achievements / todos -----------------------------------
@@ -1053,6 +1097,7 @@ function renderAchievements() {
   root.appendChild(h);
   root.appendChild(streakRibbon());
   root.appendChild(renderHeatmap());
+  root.appendChild(allTimeStats());
   root.appendChild(addRow([
     { name: "title", ph: "what you did", cls: "title" },
     { name: "date", type: "date", value: todayIso() },

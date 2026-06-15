@@ -278,6 +278,21 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .hm.lvl2 { background: #00d75f; border-color: #00d75f; }
 .hm.lvl3 { background: #5fffaf; border-color: #5fffaf; }
 .hm.future { opacity: .2; }
+.hm.pad { visibility: hidden; }   /* days outside the year — keep the grid aligned */
+/* year nav + month labels for the full-year heatmap */
+.hm-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.hm-nav { font: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--line);
+  padding: 2px 9px; cursor: pointer; border-radius: 0; }
+.hm-nav:hover:not(:disabled) { background: var(--inv-bg); color: var(--inv-fg); }
+.hm-nav:disabled { opacity: .3; cursor: default; }
+.hm-year { font-variant-numeric: tabular-nums; min-width: 3ch; }
+.hm-total { color: var(--muted); font-size: 12px; }
+.hm-months { display: flex; gap: 3px; margin-bottom: 3px; height: 13px; }
+.hm-mlabel { width: 12px; font-size: 10px; color: var(--muted); white-space: nowrap; overflow: visible; }
+/* all-time remembrance line */
+.alltime { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 12px; font-size: 13px; }
+.at-n { font-variant-numeric: tabular-nums; }
+.at-l { color: var(--muted); }
 
 /* ---- sync banner (honest staleness) ---- */
 #syncbar {
