@@ -171,27 +171,31 @@ def complete_todo(todo_id: str, date: str = "") -> dict:
 
 
 @mcp.tool()
-def add_appointment(title: str, when: str, location: str = "", note: str = "",
+def add_appointment(title: str, when: str, end: str = "", location: str = "", note: str = "",
                     recur: str = "", interval: int = 1, until: str = "") -> dict:
     """add an appointment. when = 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM'.
+    end = the finish time, same format as when (e.g. when='2026-06-16 14:00',
+    end='2026-06-16 15:00' = a 2–3pm block). all-day spans use dates. end is kept
+    only when it falls after the start; leave it off for a point-in-time event.
     to repeat it, set recur = 'daily' | 'weekly' | 'monthly' and interval = N
     (e.g. recur='weekly', interval=2 on a thursday = every other thursday).
     until = 'YYYY-MM-DD' optionally caps the repeat (last possible occurrence)."""
     try:
         return store.add_item("appointments",
-                              {"title": title, "when": when, "location": location,
+                              {"title": title, "when": when, "end": end, "location": location,
                                "note": note, "recur": _recur(recur, interval, until)})
     except store.SyncError:
         return {"error": "calendar server unreachable — not saved"}
 
 
 @mcp.tool()
-def update_appointment(item_id: str, title: str = "", when: str = "",
+def update_appointment(item_id: str, title: str = "", when: str = "", end: str = "",
                        location: str = "", note: str = "",
                        recur: str = "", interval: int = 1, until: str = "") -> dict:
     """edit/reschedule an appointment by id. only non-empty fields are changed.
-    when = 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM'. pass 'none' to clear location, note,
-    or recur (recur='daily'|'weekly'|'monthly' + interval makes it repeat).
+    when = 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM'. end = finish time (same format) to
+    make it a block; pass 'none' to clear the end. pass 'none' to clear location,
+    note, or recur (recur='daily'|'weekly'|'monthly' + interval makes it repeat).
     until = 'YYYY-MM-DD' caps the repeat; 'none' clears the cap. changing recur
     without passing until keeps the existing end-date (never silently wipes it)."""
     patch = {}
@@ -199,6 +203,8 @@ def update_appointment(item_id: str, title: str = "", when: str = "",
         patch["title"] = title
     if when:
         patch["when"] = when
+    if end:
+        patch["end"] = "" if end.lower() == "none" else end
     if location:
         patch["location"] = "" if location.lower() == "none" else location
     if note:

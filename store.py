@@ -68,7 +68,7 @@ ENTITIES = ("achievements", "todos", "appointments")
 PATCHABLE = {
     "achievements": ("title", "date", "note"),
     "todos": ("title", "done", "due", "recur", "order"),
-    "appointments": ("title", "when", "location", "note", "recur"),
+    "appointments": ("title", "when", "end", "location", "note", "recur"),
 }
 RECUR_FREQS = ("daily", "weekly", "monthly")
 DEFAULT_SETTINGS = {"theme": "dark", "accent": "#ff8700", "ics_sync_path": ""}
@@ -224,6 +224,9 @@ def _coerce(name, key, value):
         return _norm_recur(value)
     if key == "when":
         return _norm_when(str(value or "").strip())
+    if key == "end":
+        s = str(value or "").strip()
+        return _norm_when(s) if s else ""
     if key == "due":
         s = str(value or "").strip()
         return _norm_date(s) if s else ""
@@ -251,6 +254,9 @@ def _normalize(name, item):
     for key in PATCHABLE[name]:
         if key != "title":
             base[key] = _coerce(name, key, item.get(key))
+    # an appointment's end only counts if it's a real span after the start
+    if name == "appointments":
+        base["end"] = _reconcile_end(base.get("when", ""), base.get("end", ""))
     # done_at is server-stamped (not client-patchable), but keep the key present
     # so the stored shape is uniform — and carry it through an undo-restore.
     # done_dates tracks per-day completion of a *recurring* todo (a routine like
@@ -303,6 +309,8 @@ def update_item(name, item_id, patch):
                     # stamp when a one-off todo was completed (cleared if reopened) so
                     # the ui can show it and "what did i finish" is answerable.
                     it["done_at"] = date.today().isoformat() if it.get("done") else ""
+                if name == "appointments":
+                    it["end"] = _reconcile_end(it.get("when", ""), it.get("end", ""))
                 found = it
                 break
         if found is None:
@@ -365,6 +373,13 @@ def _caldav_update(item_id, patch):
         if nv != cur.get(k):
             cur[k] = nv
             changed.add(k)
+    # keep end a valid span after start; a moved start must also redraw the end block
+    recon = _reconcile_end(cur.get("when", ""), cur.get("end", ""))
+    if recon != cur.get("end", ""):
+        cur["end"] = recon
+        changed.add("end")
+    if "when" in changed and cur.get("end"):
+        changed.add("end")
     if changed:
         try:
             caldav_store.put_appointment(_CALDAV, cur, changed=changed)
@@ -452,6 +467,21 @@ def _norm_when(s):
 def when_date(when):
     """the YYYY-MM-DD a thing falls on, ignoring time."""
     return (when or "")[:10]
+
+
+def _reconcile_end(when, end):
+    """validate an appointment's end against its start. the end must share the
+    start's shape (all-day → date, timed → datetime) and fall strictly after it —
+    otherwise there's no block to draw, so drop it to "" (a point event). never
+    raises: a bad end can't crash a save, it just isn't kept."""
+    if not end or not when:
+        return ""
+    if len(when) <= 10:                       # all-day start
+        e = end[:10]
+        return e if e > when[:10] else ""     # only keep a genuine multi-day span
+    if len(end) <= 10:                        # a timed start needs a timed end
+        return ""
+    return end if end > when else ""
 
 
 # ---- recurrence -------------------------------------------------------------
@@ -671,7 +701,7 @@ def _rrule(recur, all_day):
     return "RRULE:" + ";".join(parts)
 
 
-def _vevent(uid, summary, dtstart, all_day, desc, location, recur=""):
+def _vevent(uid, summary, dtstart, all_day, desc, location, recur="", end=""):
     # DTSTAMP is REQUIRED by RFC5545 §3.6.1 — strict importers (radicale,
     # thunderbird) reject events without it.
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -681,6 +711,17 @@ def _vevent(uid, summary, dtstart, all_day, desc, location, recur=""):
     else:
         # floating local time (no TZID) — matches "when" with no zone info
         lines.append(f"DTSTART:{dtstart:%Y%m%dT%H%M%S}")
+    # DTEND is EXCLUSIVE per RFC5545 — an all-day span ends the day AFTER its last
+    # day, so a calendar draws the block over the right number of days.
+    if end:
+        try:
+            if all_day:
+                ed = date.fromisoformat(end[:10]) + timedelta(days=1)
+                lines.append(f"DTEND;VALUE=DATE:{ed:%Y%m%d}")
+            else:
+                lines.append(f"DTEND:{datetime.fromisoformat(end):%Y%m%dT%H%M%S}")
+        except ValueError:
+            pass
     rrule = _rrule(recur, all_day)
     if rrule:
         lines.append(rrule)
@@ -707,7 +748,7 @@ def build_ics():
             continue
         out += _vevent(ap.get("id", ""), ap.get("title", "appointment"), dt,
                        all_day, ap.get("note", ""), ap.get("location", ""),
-                       ap.get("recur", ""))
+                       ap.get("recur", ""), ap.get("end", ""))
     for td in list_items("todos"):
         due = td.get("due", "")
         recur = td.get("recur") or ""

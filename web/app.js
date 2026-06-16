@@ -60,6 +60,16 @@ function fmtWhen(when) {
   return when.length <= 10 ? base : `${base} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 function timeOf(when) { return when && when.length > 10 ? fmtWhen(when).slice(11) : ""; }
+// fmtRange: show "HH:MM–HH:MM" for same-day timed blocks; just start otherwise.
+// `shownWhen` is the occurrence when (may differ in date for recurring);
+// `end` is a.end from the original record — same time-of-day, possibly different date.
+function fmtRange(shownWhen, end) {
+  const start = fmtWhen(shownWhen);
+  if (!end || end.length <= 10) return start;          // no end or all-day end
+  const endTime = timeOf(end);
+  if (!endTime) return start;
+  return `${start}–${endTime}`;
+}
 
 // ---- recurrence (mirrors store.py) -----------------------------------------
 
@@ -602,6 +612,7 @@ function editFields(entity, item) {
     { name: "title", cls: "title", value: item.title },
     { name: "date", type: "date", value: (item.when || "").slice(0, 10) },
     { name: "time", type: "time", value: timeOf(item.when) },
+    { name: "endtime", type: "time", value: timeOf(item.end) },
     { name: "location", ph: "where", value: item.location },
     { name: "repeat", type: "select", value: repeatValue(item.recur), options: REPEAT_OPTIONS },
     { name: "until", type: "date", value: (item.recur && item.recur.until) || "" },
@@ -621,7 +632,7 @@ function editFields(entity, item) {
 
 function buildPatch(entity, v) {
   if (entity === "appointments")
-    return { title: v.title, when: v.time ? `${v.date} ${v.time}` : v.date, location: v.location, recur: parseRepeat(v.repeat, v.until) };
+    return { title: v.title, when: v.time ? `${v.date} ${v.time}` : v.date, end: v.endtime ? `${v.date} ${v.endtime}` : "", location: v.location, recur: parseRepeat(v.repeat, v.until) };
   if (entity === "achievements")
     return { title: v.title, date: v.date, note: v.note };
   return { title: v.title, due: v.due, recur: parseRepeat(v.repeat, v.until) };
@@ -780,7 +791,7 @@ function renderToday() {
     apptOccurrences(a, t, t).forEach(w => appts.push({ ...a, when: w })));
   appts.sort((a, b) => (a.when > b.when ? 1 : -1));
   grid.appendChild(agendaCard("appointments today", appts.length
-    ? appts.map(a => agendaLine("appt", (timeOf(a.when) ? timeOf(a.when) + "  " : "") + a.title, a.location))
+    ? appts.map(a => agendaLine("appt", (timeOf(a.when) ? fmtRange(a.when, a.end) + "  " : "") + a.title, a.location))
     : [el("div", "muted small", "nothing scheduled")]));
 
   // today's actionable one-offs (overdue / soon / anytime — far-future stays parked),
@@ -1017,11 +1028,13 @@ function appointmentAddForm(defaultWhen) {
     { name: "title", ph: "what", cls: "title" },
     { name: "when", type: "date", value: defaultWhen },
     { name: "time", type: "time" },
+    { name: "endtime", type: "time", ph: "to" },
     { name: "location", ph: "where (optional)" },
     { name: "repeat", type: "select", options: REPEAT_OPTIONS },
     { name: "until", type: "date" },
   ], d => add("appointments", {
     title: d.title, when: d.time ? `${d.when} ${d.time}` : d.when,
+    end: d.endtime ? `${d.when} ${d.endtime}` : "",
     location: d.location, recur: parseRepeat(d.repeat, d.until),
   }));
 }
@@ -1048,7 +1061,7 @@ function apptRow(a) {
   const shown = rec ? (nextOccurrence(a, todayIso()) || a.when) : a.when;
   const sub = [a.location, rec].filter(Boolean).join("  ·  ");
   return listRow(a, "appointments", [
-    el("span", "when", fmtWhen(shown)),
+    el("span", "when", fmtRange(shown, a.end)),
     buildBody(a.title, sub),
   ]);
 }
@@ -1226,7 +1239,7 @@ function renderDayPanel() {
   panel.appendChild(el("h3", null, `${MONTHS[dp.getMonth()]} ${dp.getDate()}`));
   const items = [];
   state.appointments.forEach(a => apptOccurrences(a, selDay, selDay)
-    .forEach(w => items.push(["appt", `${timeOf(w) ? timeOf(w) + " " : ""}${a.title}`.trim()])));
+    .forEach(w => items.push(["appt", `${timeOf(w) ? fmtRange(w, a.end) + " " : ""}${a.title}`.trim()])));
   state.todos.forEach(t => { if (todoOccursOn(t, selDay))
     items.push(["todo", (todoDoneOn(t, selDay) ? "✓ " : "") + t.title]); });
   state.achievements.filter(a => a.date === selDay)
@@ -1261,7 +1274,7 @@ function itemsByDay() {
   const from = addDays(iso(startOfMonth(calCursor)), -7);
   const to = addDays(iso(new Date(calCursor.getFullYear(), calCursor.getMonth() + 1, 0)), 7);
   state.appointments.forEach(a => apptOccurrences(a, from, to).forEach(w =>
-    get(w.slice(0, 10)).appts.push({ when: w, time: timeOf(w), title: a.title })));
+    get(w.slice(0, 10)).appts.push({ when: w, time: fmtRange(w, a.end), title: a.title })));
   state.todos.forEach(t => {
     if (t.recur) apptOccurrences({ when: t.due, recur: t.recur }, from, to)
       .forEach(w => { const ds = w.slice(0, 10); get(ds).todos.push({ ...t, due: ds, done: todoDoneOn(t, ds) }); });

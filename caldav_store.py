@@ -13,7 +13,7 @@ app runs in plain local-json mode (zero infra), so the open-source default is in
 import base64
 import http.client
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 from xml.etree.ElementTree import ParseError
@@ -132,10 +132,26 @@ def _event_to_appt(comp, href, etag, raw_ical=""):
     created = ""
     if comp.get("dtstamp"):
         created = _local_when(comp["dtstamp"].dt)
+    # end time, from DTEND (preferred) or DURATION. DTEND is EXCLUSIVE per RFC5545,
+    # so an all-day end is the day AFTER the last day — store the inclusive last day.
+    end = ""
+    dtend = comp.get("dtend")
+    if dtend is not None:
+        ev_end = dtend.dt
+        if isinstance(ev_end, datetime):
+            end = _local_when(ev_end)
+        else:
+            end = (ev_end - timedelta(days=1)).isoformat()
+    elif comp.get("duration") is not None:
+        try:
+            end = _local_when(dtstart.dt + comp["duration"].dt)
+        except (TypeError, ValueError):
+            end = ""
     return {
         "id": item_id,
         "title": str(comp.get("summary", "")).strip() or "(untitled)",
         "when": _local_when(dtstart.dt),
+        "end": end,
         "location": str(comp.get("location", "")).strip(),
         "note": str(comp.get("description", "")).strip(),
         "recur": _parse_rrule(comp.get("rrule")),
@@ -161,6 +177,13 @@ def _appt_to_ical(appt):
         ev.add("dtstart", date.fromisoformat(when[:10]))
     else:
         ev.add("dtstart", datetime.fromisoformat(when))
+    end = appt.get("end") or ""
+    if end:
+        # DTEND is exclusive — all-day end is the day after the inclusive last day
+        if len(when) <= 10:
+            ev.add("dtend", date.fromisoformat(end[:10]) + timedelta(days=1))
+        else:
+            ev.add("dtend", datetime.fromisoformat(end))
     if appt.get("location"):
         ev.add("location", appt["location"])
     if appt.get("note"):
@@ -273,6 +296,20 @@ def _set_dtstart(comp, when):
         comp.add("dtstart", datetime.fromisoformat(when))
 
 
+def _set_dtend(comp, when, end):
+    """rewrite DTEND from lifeplanner's `end` (or remove it). drops any DURATION too
+    so an event never carries both (RFC5545 forbids it). all-day end is exclusive."""
+    for k in ("dtend", "duration"):
+        if k in comp:
+            del comp[k]
+    if not end:
+        return
+    if len(when) <= 10:
+        comp.add("dtend", date.fromisoformat(end[:10]) + timedelta(days=1))
+    else:
+        comp.add("dtend", datetime.fromisoformat(end))
+
+
 def _set_rrule(comp, recur):
     if "rrule" in comp:
         del comp["rrule"]
@@ -299,6 +336,9 @@ def _patch_raw(raw, appt, changed):
         _set(ev, "description", appt.get("note", ""))
     if touch("when"):
         _set_dtstart(ev, appt["when"])
+    # a changed start OR end must redraw DTEND (moving the start shifts the block)
+    if touch("when") or touch("end"):
+        _set_dtend(ev, appt.get("when", ""), appt.get("end") or "")
     if touch("recur"):
         _set_rrule(ev, appt.get("recur") or "")
     return cal.to_ical()

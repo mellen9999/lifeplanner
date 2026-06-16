@@ -114,6 +114,43 @@ class CalDAVMappingTest(unittest.TestCase):
         self.assertIn("BYDAY=MO,WE", out)   # recurrence untouched
         self.assertIn("BEGIN:VALARM", out)  # alarm untouched
 
+    # ---- end time / DTEND ----
+    def test_end_timed_roundtrip(self):
+        appt = {"id": "abc123def456", "title": "anger mgmt", "when": "2026-06-16T14:00",
+                "end": "2026-06-16T15:00", "location": "", "note": "", "recur": ""}
+        ical = cd._appt_to_ical(appt)
+        self.assertIn("DTEND:20260616T150000", ical.decode())
+        self.assertEqual(_appt(ical.decode())["end"], "2026-06-16T15:00")
+
+    def test_end_allday_is_exclusive(self):
+        # a 24th–26th span ends (exclusive) on the 27th in iCal, round-trips back to 26th
+        appt = {"id": "x", "title": "trip", "when": "2026-06-24", "end": "2026-06-26",
+                "location": "", "note": "", "recur": ""}
+        ical = cd._appt_to_ical(appt)
+        self.assertIn("DTEND;VALUE=DATE:20260627", ical.decode())
+        self.assertEqual(_appt(ical.decode())["end"], "2026-06-26")
+
+    def test_duration_parses_to_end(self):
+        # a phone may send DURATION instead of DTEND
+        a = _appt(_wrap("BEGIN:VEVENT\nUID:d@lifeplanner\nDTSTART:20260616T140000\n"
+                        "SUMMARY:x\nDURATION:PT1H\nEND:VEVENT"))
+        self.assertEqual(a["end"], "2026-06-16T15:00")
+
+    def test_no_dtend_no_end(self):
+        a = _appt(_wrap("BEGIN:VEVENT\nUID:n@lifeplanner\nDTSTART:20260616T140000\n"
+                        "SUMMARY:x\nEND:VEVENT"))
+        self.assertEqual(a["end"], "")
+
+    def test_patch_sets_and_clears_dtend(self):
+        raw = _wrap("BEGIN:VEVENT\nUID:p\nDTSTART:20260616T140000\nSUMMARY:x\nEND:VEVENT")
+        appt = {"title": "x", "when": "2026-06-16T14:00", "end": "2026-06-16T15:00",
+                "location": "", "note": "", "recur": ""}
+        out = cd._patch_raw(raw, appt, changed={"end"}).decode()
+        self.assertIn("DTEND:20260616T150000", out)
+        appt["end"] = ""
+        out2 = cd._patch_raw(out, appt, changed={"end"}).decode()
+        self.assertNotIn("DTEND", out2)
+
     # ---- path safety ----
     def test_safe_path_rejects_traversal(self):
         with self.assertRaises(cd.CalDAVError):
