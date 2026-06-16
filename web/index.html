@@ -23,10 +23,8 @@
       <button class="tab" data-view="todos"><span class="k">5</span>todos</button>
     </nav>
     <div id="tools">
-      <div id="accents" title="accent"></div>
-      <button id="theme-btn" title="theme (t)">dark</button>
       <button id="export-btn" title="export your data (backup)">⤓</button>
-      <button id="help-btn" title="help (?)">?</button>
+      <button id="help-btn" title="settings &amp; keys (?)">?</button>
     </div>
   </header>
 
@@ -41,6 +39,9 @@
 
   <div id="help" class="overlay" hidden>
     <div class="card">
+      <h2>settings</h2>
+      <div class="set-row"><span>theme</span><button id="theme-btn" title="theme (t)">dark</button></div>
+      <div class="set-row"><span>accent</span><div id="accents" title="accent"></div></div>
       <h2>keys</h2>
       <table>
         <tr><td>1 … 5</td><td>today · calendar · appointments · achievements · todos</td></tr>

@@ -46,6 +46,9 @@ body {
 
 #tools { display: flex; align-items: center; gap: 10px; padding: 0 12px; }
 #accents { display: flex; gap: 5px; }
+/* settings rows inside the help/settings overlay */
+.set-row { display: flex; align-items: center; gap: 12px; margin: 8px 0; }
+.set-row > span { color: var(--muted); width: 56px; }
 .swatch {
   width: 15px; height: 15px; border: 1px solid var(--line); cursor: pointer; padding: 0;
   border-radius: 0;
@@ -58,19 +61,18 @@ body {
 }
 #theme-btn:hover, #help-btn:hover, #export-btn:hover { background: var(--inv-bg); color: var(--inv-fg); }
 
-/* ---- phone: header stacks (tabs row + tools row) so nothing scrolls off ---- */
+/* ---- phone: single header row — tabs scroll, the two tools pin right ---- */
 @media (max-width: 760px) {
-  #bar { flex-wrap: wrap; }
-  /* tabs take the full first row; swipe horizontally if the words overrun */
+  /* tabs take the remaining width and swipe horizontally if the words overrun */
   #nav {
-    flex: 1 1 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
-    scrollbar-width: none; border-bottom: 1px solid var(--line);
+    flex: 1 1 auto; min-width: 0; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
   }
   #nav::-webkit-scrollbar { display: none; }
   .tab { padding: 8px 13px; white-space: nowrap; }
   .tab .k { margin-right: 6px; }
-  /* tools drop to their own row, left-aligned, always fully visible */
-  #tools { flex: 1 1 100%; justify-content: flex-start; padding: 6px 12px; gap: 12px; }
+  /* export + help stay inline on the tab row, never wrapping to a second row */
+  #tools { flex: 0 0 auto; padding: 0 8px; gap: 8px; }
   /* fatter touch targets for the row actions (desktop density stays untouched) */
   .row .del, .row .rowedit { padding: 4px 12px; }
   /* stop date/time pickers collapsing to unusable slivers in the wrapped add-row */
