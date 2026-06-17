@@ -75,6 +75,9 @@ body {
   #tools { flex: 0 0 auto; padding: 0 8px; gap: 8px; }
   /* fatter touch targets for the row actions (desktop density stays untouched) */
   .row .del, .row .rowedit { padding: 4px 12px; }
+  /* the date column is compact now ("today · 2–3pm"), so let it size to content
+     instead of reserving 116px — the title gets the rest and stays readable */
+  .row .when { min-width: 0; font-size: 13px; }
   /* stop date/time pickers collapsing to unusable slivers in the wrapped add-row */
   .add input[type="date"] { flex: 0 0 auto; min-width: 130px; }
   .add input[type="time"] { flex: 0 0 auto; min-width: 92px; }

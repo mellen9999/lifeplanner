@@ -60,15 +60,41 @@ function fmtWhen(when) {
   return when.length <= 10 ? base : `${base} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 function timeOf(when) { return when && when.length > 10 ? fmtWhen(when).slice(11) : ""; }
-// fmtRange: show "HH:MM–HH:MM" for same-day timed blocks; just start otherwise.
-// `shownWhen` is the occurrence when (may differ in date for recurring);
-// `end` is a.end from the original record — same time-of-day, possibly different date.
-function fmtRange(shownWhen, end) {
-  const start = fmtWhen(shownWhen);
-  if (!end || end.length <= 10) return start;          // no end or all-day end
-  const endTime = timeOf(end);
-  if (!endTime) return start;
-  return `${start}–${endTime}`;
+// ---- compact, human date/time for listings (mobile-first: short = title gets room)
+// "2pm" / "2:30pm" from a "HH:MM" string
+function fmtTime12(t) {
+  if (!t) return "";
+  let [h, m] = t.split(":").map(Number);
+  const ap = h < 12 ? "am" : "pm";
+  h = h % 12 || 12;
+  return m ? `${h}:${pad(m)}${ap}` : `${h}${ap}`;
+}
+// "2–3pm" / "2pm" / "" (all-day) — time only, no date
+function fmtTimeRange(when, end) {
+  const t = timeOf(when);
+  if (!t) return "";
+  const endT = (end && end.length > 10) ? timeOf(end) : "";
+  return endT ? `${fmtTime12(t)}–${fmtTime12(endT)}` : fmtTime12(t);
+}
+// relative for near days ("today"/"tomorrow"/"yesterday"), else "tue jun 16";
+// year shown only when it isn't the current year. drops the noisy YYYY-MM- prefix.
+function fmtDateShort(when) {
+  if (!when) return "";
+  const d = new Date(when.length <= 10 ? when + "T00:00" : when);
+  if (isNaN(d)) return when;
+  const today = new Date(todayIso() + "T00:00");
+  const diff = Math.round((new Date(iso(d) + "T00:00") - today) / 86400000);
+  if (diff === 0) return "today";
+  if (diff === 1) return "tomorrow";
+  if (diff === -1) return "yesterday";
+  const base = `${DOW[(d.getDay() + 6) % 7]} ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}`;
+  return d.getFullYear() === today.getFullYear() ? base : `${base} ${d.getFullYear()}`;
+}
+// date + time for the cross-day appointments list, e.g. "tue jun 16 · 2–3pm"
+function fmtWhenList(when, end) {
+  const ds = fmtDateShort(when);
+  const tr = fmtTimeRange(when, end);
+  return tr ? `${ds} · ${tr}` : ds;
 }
 
 // ---- recurrence (mirrors store.py) -----------------------------------------
@@ -791,7 +817,7 @@ function renderToday() {
     apptOccurrences(a, t, t).forEach(w => appts.push({ ...a, when: w })));
   appts.sort((a, b) => (a.when > b.when ? 1 : -1));
   grid.appendChild(agendaCard("appointments today", appts.length
-    ? appts.map(a => agendaLine("appt", (timeOf(a.when) ? fmtRange(a.when, a.end) + "  " : "") + a.title, a.location))
+    ? appts.map(a => agendaLine("appt", (timeOf(a.when) ? fmtTimeRange(a.when, a.end) + "  " : "") + a.title, a.location))
     : [el("div", "muted small", "nothing scheduled")]));
 
   // today's actionable one-offs (overdue / soon / anytime — far-future stays parked),
@@ -1061,7 +1087,7 @@ function apptRow(a) {
   const shown = rec ? (nextOccurrence(a, todayIso()) || a.when) : a.when;
   const sub = [a.location, rec].filter(Boolean).join("  ·  ");
   return listRow(a, "appointments", [
-    el("span", "when", fmtRange(shown, a.end)),
+    el("span", "when", fmtWhenList(shown, a.end)),
     buildBody(a.title, sub),
   ]);
 }
@@ -1239,7 +1265,7 @@ function renderDayPanel() {
   panel.appendChild(el("h3", null, `${MONTHS[dp.getMonth()]} ${dp.getDate()}`));
   const items = [];
   state.appointments.forEach(a => apptOccurrences(a, selDay, selDay)
-    .forEach(w => items.push(["appt", `${timeOf(w) ? fmtRange(w, a.end) + " " : ""}${a.title}`.trim()])));
+    .forEach(w => items.push(["appt", `${timeOf(w) ? fmtTimeRange(w, a.end) + " " : ""}${a.title}`.trim()])));
   state.todos.forEach(t => { if (todoOccursOn(t, selDay))
     items.push(["todo", (todoDoneOn(t, selDay) ? "✓ " : "") + t.title]); });
   state.achievements.filter(a => a.date === selDay)
@@ -1274,7 +1300,7 @@ function itemsByDay() {
   const from = addDays(iso(startOfMonth(calCursor)), -7);
   const to = addDays(iso(new Date(calCursor.getFullYear(), calCursor.getMonth() + 1, 0)), 7);
   state.appointments.forEach(a => apptOccurrences(a, from, to).forEach(w =>
-    get(w.slice(0, 10)).appts.push({ when: w, time: fmtRange(w, a.end), title: a.title })));
+    get(w.slice(0, 10)).appts.push({ when: w, time: fmtTimeRange(w, a.end), title: a.title })));
   state.todos.forEach(t => {
     if (t.recur) apptOccurrences({ when: t.due, recur: t.recur }, from, to)
       .forEach(w => { const ds = w.slice(0, 10); get(ds).todos.push({ ...t, due: ds, done: todoDoneOn(t, ds) }); });
