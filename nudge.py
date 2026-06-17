@@ -145,7 +145,7 @@ def main(now=None):
         if text:
             priority, tags = _standup_alert(slip.get("overdue_todos") or [])
             try:
-                notify.send("standup", text, priority=priority, tags=tags)
+                notify.send("standup", text, priority=priority, tags=tags, view="todos")
                 state["standup"], changed = today, True
             except OSError:
                 pass  # ntfy down → retry next run, don't mark fired
@@ -157,7 +157,7 @@ def main(now=None):
             and state.get("review") != today):
         try:
             notify.send("weekly review", review_text(review.review(7)),
-                        priority=4, tags=["calendar"])
+                        priority=4, tags=["calendar"], view="achievements")
             state["review"], changed = today, True
         except OSError:
             pass

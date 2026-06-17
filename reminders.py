@@ -88,7 +88,7 @@ def main():
                 if last < fire_dt <= now:  # became due since the last check → fire once
                     try:
                         notify.send(title, f"{label} · {when_text}",
-                                    priority=4, tags=["alarm_clock"])
+                                    priority=4, tags=["alarm_clock"], view="appointments")
                     except OSError:  # urllib URLError → ntfy/network down
                         ok = False   # don't advance state; retry the window next run
     if ok:  # only advance past reminders we actually delivered → never miss one

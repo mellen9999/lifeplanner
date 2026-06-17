@@ -22,7 +22,7 @@ def configured():
     return bool(SERVER and TOPIC)
 
 
-def send(title, message, priority=4, tags=None, click=""):
+def send(title, message, priority=4, tags=None, click="", view=""):
     """publish one ntfy message. returns False if not configured; raises OSError
     (urllib URLError) when the server is unreachable, so a caller can choose not
     to advance its once-only state and retry the window next run."""
@@ -32,7 +32,7 @@ def send(title, message, priority=4, tags=None, click=""):
                "priority": int(priority)}
     if tags:
         payload["tags"] = list(tags)
-    link = click or APP_URL
+    link = click or (APP_URL + ("#" + view if view else ""))
     if link:
         payload["click"] = link
     body = json.dumps(payload).encode("utf-8")
