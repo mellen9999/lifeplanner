@@ -151,6 +151,19 @@ class CalDAVMappingTest(unittest.TestCase):
         out2 = cd._patch_raw(out, appt, changed={"end"}).decode()
         self.assertNotIn("DTEND", out2)
 
+    # ---- local-fire alarms (VALARM) ----
+    def test_timed_appt_has_two_alarms(self):
+        appt = {"id": "x", "title": "anger mgmt", "when": "2026-06-16T14:00",
+                "location": "", "note": "", "recur": ""}
+        ical = cd._appt_to_ical(appt).decode()
+        self.assertEqual(ical.count("BEGIN:VALARM"), 2)
+        self.assertIn("TRIGGER", ical)  # -P1D and -PT1H
+
+    def test_allday_appt_has_one_alarm(self):
+        appt = {"id": "y", "title": "trip", "when": "2026-06-24",
+                "location": "", "note": "", "recur": ""}
+        self.assertEqual(cd._appt_to_ical(appt).decode().count("BEGIN:VALARM"), 1)
+
     # ---- path safety ----
     def test_safe_path_rejects_traversal(self):
         with self.assertRaises(cd.CalDAVError):

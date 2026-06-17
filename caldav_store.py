@@ -20,7 +20,7 @@ from xml.etree.ElementTree import ParseError
 
 import defusedxml.ElementTree as ET
 from defusedxml.common import DefusedXmlException
-from icalendar import Calendar, Event
+from icalendar import Alarm, Calendar, Event
 
 BASE = Path(__file__).resolve().parent
 CONFIG_FILE = BASE / ".caldav.json"
@@ -194,8 +194,26 @@ def _appt_to_ical(appt):
         if recur.get("until"):
             rule["until"] = date.fromisoformat(recur["until"])
         ev.add("rrule", rule)
+    # embed local-fire alarms in the event itself: the phone's calendar schedules
+    # these on-device, so they ring even with no live connection — surviving doze /
+    # the oem task-killer that makes a push unreliable. timed → 1 day + 1 hour
+    # before; all-day → 1 day before (an hour-before a midnight event is useless).
+    for trig in _alarm_triggers(when):
+        al = Alarm()
+        al.add("action", "DISPLAY")
+        al.add("description", appt.get("title", "") or "appointment")
+        al.add("trigger", trig)
+        ev.add_component(al)
     cal.add_component(ev)
     return cal.to_ical()
+
+
+def _alarm_triggers(when):
+    """relative VALARM triggers for an appointment — recurrence-aware via the event's
+    own RRULE (the phone re-applies the alarm to each occurrence)."""
+    if len(when) <= 10:                      # all-day
+        return [timedelta(days=-1)]
+    return [timedelta(days=-1), timedelta(hours=-1)]
 
 
 # ---- operations -------------------------------------------------------------

@@ -701,7 +701,7 @@ def _rrule(recur, all_day):
     return "RRULE:" + ";".join(parts)
 
 
-def _vevent(uid, summary, dtstart, all_day, desc, location, recur="", end=""):
+def _vevent(uid, summary, dtstart, all_day, desc, location, recur="", end="", alarms=()):
     # DTSTAMP is REQUIRED by RFC5545 §3.6.1 — strict importers (radicale,
     # thunderbird) reject events without it.
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -730,6 +730,10 @@ def _vevent(uid, summary, dtstart, all_day, desc, location, recur="", end=""):
         lines.append(f"DESCRIPTION:{_ics_escape(desc)}")
     if location:
         lines.append(f"LOCATION:{_ics_escape(location)}")
+    # local-fire reminders the subscribing calendar schedules on-device
+    for trig in alarms:
+        lines += ["BEGIN:VALARM", "ACTION:DISPLAY",
+                  f"DESCRIPTION:{_ics_escape(summary)}", f"TRIGGER:{trig}", "END:VALARM"]
     lines.append("END:VEVENT")
     return [_fold(x) for x in lines]
 
@@ -746,9 +750,11 @@ def build_ics():
             dt = date.fromisoformat(when[:10]) if all_day else datetime.fromisoformat(when)
         except ValueError:
             continue
+        # 1 day before (+ 1 hour before, for timed) — local alarms the phone fires itself
+        alarms = ["-P1D"] if all_day else ["-P1D", "-PT1H"]
         out += _vevent(ap.get("id", ""), ap.get("title", "appointment"), dt,
                        all_day, ap.get("note", ""), ap.get("location", ""),
-                       ap.get("recur", ""), ap.get("end", ""))
+                       ap.get("recur", ""), ap.get("end", ""), alarms)
     for td in list_items("todos"):
         due = td.get("due", "")
         recur = td.get("recur") or ""
