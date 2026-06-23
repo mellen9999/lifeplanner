@@ -151,18 +151,16 @@ class CalDAVMappingTest(unittest.TestCase):
         out2 = cd._patch_raw(out, appt, changed={"end"}).decode()
         self.assertNotIn("DTEND", out2)
 
-    # ---- local-fire alarms (VALARM) ----
-    def test_timed_appt_has_two_alarms(self):
+    # ---- no embedded alarms: alarms ship single-transport via reminders.py/ntfy ----
+    def test_timed_appt_has_no_embedded_alarm(self):
         appt = {"id": "x", "title": "anger mgmt", "when": "2026-06-16T14:00",
                 "location": "", "note": "", "recur": ""}
-        ical = cd._appt_to_ical(appt).decode()
-        self.assertEqual(ical.count("BEGIN:VALARM"), 2)
-        self.assertIn("TRIGGER", ical)  # -P1D and -PT1H
+        self.assertNotIn("BEGIN:VALARM", cd._appt_to_ical(appt).decode())
 
-    def test_allday_appt_has_one_alarm(self):
+    def test_allday_appt_has_no_embedded_alarm(self):
         appt = {"id": "y", "title": "trip", "when": "2026-06-24",
                 "location": "", "note": "", "recur": ""}
-        self.assertEqual(cd._appt_to_ical(appt).decode().count("BEGIN:VALARM"), 1)
+        self.assertNotIn("BEGIN:VALARM", cd._appt_to_ical(appt).decode())
 
     # ---- path safety ----
     def test_safe_path_rejects_traversal(self):
