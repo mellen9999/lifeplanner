@@ -1491,7 +1491,12 @@ function wireBar() {
 
 let polling = false;
 async function poll() {
-  if (polling || editing || dragging || document.visibilityState !== "visible") return;
+  // a background refresh repaints the active view, replacing its DOM — so never
+  // poll while the user is mid-input. `editing` guards edit rows; this guards the
+  // quick win-logger and every add-form (none of which set `editing`), which would
+  // otherwise lose focus + their half-typed text the instant a poll lands.
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || "");
+  if (polling || editing || dragging || typing || document.visibilityState !== "visible") return;
   polling = true;
   try {
     const { version } = await api("GET", "/api/version");
