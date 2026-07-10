@@ -8,7 +8,7 @@ const ACCENTS = [
 const DOW = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const MONTHS = ["january", "february", "march", "april", "may", "june",
   "july", "august", "september", "october", "november", "december"];
-const VIEWS = ["today", "calendar", "appointments", "achievements", "todos", "journal"];
+const VIEWS = ["today", "calendar", "appointments", "todos", "journal"];
 const REPEAT_OPTIONS = [
   { value: "", label: "once" },
   { value: "daily", label: "daily" },
@@ -27,6 +27,8 @@ let editing = null;           // id of the item being edited inline
 let calCursor = startOfMonth(new Date());
 let selDay = iso(new Date()); // selected calendar day
 let hmYear = new Date().getFullYear();  // which year the wins heatmap shows
+let logFilter = "all";        // journal timeline: "all" (entries + wins) | "wins"
+let logIsWin = false;         // journal composer mode: false = entry, true = ★ win
 let pendingDelete = false;    // first 'd' of 'dd'
 let armedDelete = null;       // id of the row whose × is armed; needs a 2nd click
 let armedTimer = null;        // auto-disarm so a stale armed × can't linger
@@ -392,19 +394,32 @@ function setView(v) {
 }
 
 function currentList() {
-  if (view === "achievements") return applySearch(state.achievements);
   if (view === "todos") return orderedTodos();
   if (view === "appointments") { const o = orderedAppointments(applySearch(state.appointments)); return [...o.up, ...o.past]; }
-  if (view === "journal") return orderedJournal();
+  if (view === "journal") return orderedLog();
   return [];
 }
 
-// diary entries newest-first, by timestamp then insertion order (so two on the
-// same minute keep a stable order). the flat order the keyboard nav walks — matches
-// the rows renderJournal paints, even with day-headers interleaved between them.
-function orderedJournal() {
-  return applySearch(state.journal).slice().sort((a, b) =>
-    ((b.when || "") + (b.created || "")).localeCompare((a.when || "") + (a.created || "")));
+// the unified life-log: diary entries + wins in one stream, each tagged with the
+// store it lives in (_entity) so edit/delete route correctly, its day (_day) for
+// the date headers, and a sort key (_t). wins have no clock time — they're a day's
+// highlight, so they pin to the TOP of their day ("~" sorts after any HH:MM).
+function logItems() {
+  const j = state.journal.map(x =>
+    ({ ...x, _kind: "jrnl", _entity: "journal", _day: (x.when || "").slice(0, 10), _t: (x.when || "") }));
+  const w = state.achievements.map(x =>
+    ({ ...x, _kind: "win", _entity: "achievements", _day: (x.date || ""), _t: (x.date || "") + " ~" }));
+  return [...j, ...w];
+}
+
+// the log newest-first, by timestamp then insertion order (stable within a minute).
+// the flat order keyboard nav walks — matches the rows renderJournal paints, even
+// with day-headers interleaved. `wins` filter narrows to just the highlight reel.
+function orderedLog() {
+  let items = applySearch(logItems());
+  if (logFilter === "wins") items = items.filter(i => i._kind === "win");
+  return items.slice().sort((a, b) =>
+    ((b._t) + (b.created || "")).localeCompare((a._t) + (a.created || "")));
 }
 
 // live text filter (the `/` search). matches title + the contextual fields so
@@ -435,7 +450,7 @@ function visibleTodos() {
 // calls render() again, so the newly-active view is always fresh.
 const RENDERERS = {
   today: renderToday, calendar: renderCalendar, appointments: renderAppointments,
-  achievements: renderAchievements, todos: renderTodos, journal: renderJournal,
+  todos: renderTodos, journal: renderJournal,
 };
 function render() {
   renderSyncBanner();
@@ -447,7 +462,7 @@ function render() {
 }
 
 function openSearch() {
-  if (!["appointments", "achievements", "todos", "journal"].includes(view)) return;
+  if (!["appointments", "todos", "journal"].includes(view)) return;
   searchOpen = true;
   document.getElementById("searchbar").hidden = false;
   const inp = document.getElementById("search-input");
@@ -596,6 +611,7 @@ function listRow(item, entity, parts, opts = {}) {
   if (item.id === editing) return editRow(item, entity);
   const row = el("div", "row" + (opts.done ? " done" : ""));
   row.dataset.id = item.id;
+  row.dataset.entity = entity;  // so a mixed list (the log) routes edit/delete per row
   if (opts.dragHandle) {  // grip to drag-reorder (routines) — leftmost on the row
     const g = el("span", "drag-handle", "⠿");
     g.title = "drag to reorder";
@@ -695,8 +711,10 @@ function buildPatch(entity, v) {
   return { title: v.title, due: v.due, recur: parseRepeat(v.repeat, v.until) };
 }
 
-function focusEdit(entity) {
-  const f = document.querySelector(`#${entity} .row.editing .title`);
+// focus the edit form's first field. queries the active view (not the entity) so a
+// win edited inside the journal timeline still lands, even though its store differs.
+function focusEdit() {
+  const f = document.querySelector(".view.active .row.editing .title");
   if (f) { f.focus(); f.select(); }
 }
 
@@ -1060,21 +1078,6 @@ function renderHeatmap() {
   return wrap;
 }
 
-// all-time remembrance line: totals that never reset, so the long arc is visible.
-function allTimeStats() {
-  const counts = winCounts();
-  const dates = Object.keys(counts).sort();
-  const total = state.achievements.length;
-  const activeDays = dates.length;
-  const since = dates[0];
-  const row = el("div", "alltime");
-  const add = (n, l) => { const s = el("span", "at-item"); s.append(el("span", "at-n", String(n)), el("span", "at-l", " " + l)); row.appendChild(s); };
-  add(total, "wins all-time");
-  add(activeDays, "active days");
-  if (since) { const s = el("span", "at-item"); s.append(el("span", "at-l", "since "), el("span", "at-n", since)); row.appendChild(s); }
-  return row;
-}
-
 // ---- appointments / achievements / todos -----------------------------------
 
 // the full appointment add form — identical controls everywhere it's offered
@@ -1159,28 +1162,6 @@ function renderAppointments() {
   root.appendChild(body);
 }
 
-function renderAchievements() {
-  const root = document.getElementById("achievements");
-  clear(root);
-  const h = el("h2", "section-h", "achievements");
-  h.appendChild(el("span", "count", `${state.achievements.length} logged`));
-  root.appendChild(h);
-  root.appendChild(streakRibbon());
-  root.appendChild(renderHeatmap());
-  root.appendChild(allTimeStats());
-  root.appendChild(addRow([
-    { name: "title", ph: "what you did", cls: "title" },
-    { name: "date", type: "date", value: todayIso() },
-    { name: "note", ph: "note (optional)" },
-  ], d => add("achievements", d)));
-  const body = el("div");
-  mountList(body, applySearch(state.achievements), (a) => listRow(a, "achievements", [
-    el("span", "when", a.date),
-    buildBody(a.title, a.note),
-  ]), "no wins logged yet. log your first one — press n.");
-  root.appendChild(body);
-}
-
 function renderTodos() {
   const root = document.getElementById("todos");
   clear(root);
@@ -1231,31 +1212,29 @@ function renderTodos() {
 
 // ---- journal ----------------------------------------------------------------
 
+// the life-log: one timeline of diary entries + wins, with the wins' analytics
+// (streak + heatmap) up top as the highlight-reel lens over the same stream.
 function renderJournal() {
   const root = document.getElementById("journal");
   clear(root);
-  const n = state.journal.length;
+  const nj = state.journal.length, nw = state.achievements.length;
   const h = el("h2", "section-h", "journal");
-  h.appendChild(el("span", "count", `${n} entr${n === 1 ? "y" : "ies"}`));
+  h.appendChild(el("span", "count",
+    `${nj} entr${nj === 1 ? "y" : "ies"} · ${nw} win${nw === 1 ? "" : "s"}`));
+  h.appendChild(logFilterChip());
   root.appendChild(h);
-  // composer: a textarea (any length) + a date/time so a memory can be backdated.
-  // the date sticks at today so logging several moments in one sitting is one field.
-  root.appendChild(addRow([
-    { name: "body", type: "textarea", cls: "title", ph: "what happened? — anything worth remembering", rows: 3 },
-    { name: "date", type: "date", value: todayIso() },
-    { name: "time", type: "time" },
-  ], d => {
-    // a same-day log with no time set stamps the current moment (server fills it),
-    // so it slots in chronologically and shows a clock; a backdated day keeps just
-    // its date (a day-level memory legitimately has no time).
-    const when = d.time ? `${d.date} ${d.time}` : (d.date === todayIso() ? "" : d.date);
-    add("journal", { body: d.body, when });
-  }));
+  // wins analytics — the streak HUD + year heatmap track the ★ subset of the log.
+  root.appendChild(streakRibbon());
+  root.appendChild(renderHeatmap());
+  // one capture surface: write an entry, or flip ★ to log it as a win instead.
+  root.appendChild(logComposer());
 
   const body = el("div");
-  const items = orderedJournal();
+  const items = orderedLog();
   if (!items.length) {
-    body.appendChild(el("div", "empty", "no entries yet. write your first — press n."));
+    body.appendChild(el("div", "empty", logFilter === "wins"
+      ? "no wins yet. press n, flip ★, and log one."
+      : "no entries yet. write your first — press n."));
     root.appendChild(body);
     return;
   }
@@ -1264,19 +1243,88 @@ function renderJournal() {
   // headers are non-.row, so keyboard nav + the .sel class still land on entries).
   const list = el("div", "list");
   let lastDate = "";
-  items.forEach((j, i) => {
-    const ds = (j.when || "").slice(0, 10);
-    if (ds !== lastDate) { list.appendChild(journalDayHead(ds)); lastDate = ds; }
-    const row = listRow(j, "journal", [
-      el("span", "when", timeOf(j.when) || "—"),
-      journalBody(j.body),
-    ]);
-    if (i === sel && j.id !== editing) row.classList.add("sel");
-    if (j.id !== editing) row.onclick = () => { sel = i; render(); };
+  items.forEach((it, i) => {
+    if (it._day !== lastDate) { list.appendChild(journalDayHead(it._day)); lastDate = it._day; }
+    const row = it._kind === "win"
+      ? listRow(it, "achievements", [el("span", "when", "—"), winBody(it.title, it.note)])
+      : listRow(it, "journal", [el("span", "when", timeOf(it.when) || "—"), journalBody(it.body)]);
+    if (it._kind === "win") row.classList.add("win");
+    if (i === sel && it.id !== editing) row.classList.add("sel");
+    if (it.id !== editing) row.onclick = () => { sel = i; render(); };
     list.appendChild(row);
   });
   body.appendChild(list);
   root.appendChild(body);
+}
+
+// the composer: a textarea + date/time so any moment can be backdated. the ★ toggle
+// swaps the destination — off writes a diary entry (keeps its clock time), on logs a
+// win (day-level, no time — it feeds the streak + heatmap). the mode sticks between
+// adds so a burst of wins, or a burst of entries, is one uninterrupted flow.
+function logComposer() {
+  const form = el("form", "add");
+  const ta = makeField({ name: "body", type: "textarea", cls: "title", rows: 3 });
+  const date = makeField({ name: "date", type: "date", value: todayIso() });
+  const time = makeField({ name: "time", type: "time" });
+  const star = el("button", "wintoggle", "★ win");
+  star.type = "button";
+  star.title = "log this as a win — feeds your streak + heatmap (day-level, no time)";
+  const sync = () => {
+    star.classList.toggle("on", logIsWin);
+    star.setAttribute("aria-pressed", logIsWin ? "true" : "false");
+    time.style.display = logIsWin ? "none" : "";
+    ta.placeholder = logIsWin
+      ? "what you did — a win worth remembering"
+      : "what happened? — anything worth remembering";
+  };
+  star.onclick = () => { logIsWin = !logIsWin; sync(); ta.focus(); };
+  sync();
+  const btn = el("button", null, "add"); btn.type = "submit";
+  form.append(ta, star, date, time, btn);
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const text = ta.value.trim();
+    if (!text) return;
+    if (logIsWin) {
+      add("achievements", { title: text, date: date.value });
+    } else {
+      // a same-day entry with no time stamps the current moment (server fills it);
+      // a backdated day keeps just its date (a day-level memory has no clock time).
+      const when = time.value ? `${date.value} ${time.value}`
+        : (date.value === todayIso() ? "" : date.value);
+      add("journal", { body: text, when });
+    }
+    ta.value = ""; time.value = "";
+    ta.focus();
+  };
+  form._first = ta;
+  return form;
+}
+
+// segmented filter in the journal header: the whole log, or just the ★ wins.
+function logFilterChip() {
+  const wrap = el("span", "count seg");
+  const mk = (val, label) => {
+    const s = el("span", "seg-i" + (logFilter === val ? " on" : ""), label);
+    s.setAttribute("role", "button");
+    s.tabIndex = 0;
+    const pick = () => { logFilter = val; sel = -1; render(); };
+    s.onclick = pick;
+    s.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } };
+    return s;
+  };
+  wrap.append(mk("all", "all"), mk("wins", "★ wins"));
+  return wrap;
+}
+
+// a win in the timeline — a ★-marked line in the achievement green, note beneath.
+function winBody(title, note) {
+  const b = el("div", "body");
+  const line = el("div", "title win-title");
+  line.append(el("span", "winstar", "★ "), document.createTextNode(title || ""));
+  b.appendChild(line);
+  if (note) b.appendChild(el("div", "sub", note));
+  return b;
 }
 
 // a date divider between days in the journal, e.g. "wed · jul 9, 2026".
@@ -1448,12 +1496,12 @@ function moveSel(d) {
 }
 
 function editSel() {
-  if (!["appointments", "achievements", "todos", "journal"].includes(view)) return;
+  if (!["appointments", "todos", "journal"].includes(view)) return;
   const list = currentList();
   if (sel < 0 || sel >= list.length) return;
   editing = list[sel].id;
   render();
-  focusEdit(view);
+  focusEdit();
 }
 
 document.addEventListener("keydown", (e) => {
@@ -1496,9 +1544,8 @@ document.addEventListener("keydown", (e) => {
     case "1": setView("today"); break;
     case "2": setView("calendar"); break;
     case "3": setView("appointments"); break;
-    case "4": setView("achievements"); break;
-    case "5": setView("todos"); break;
-    case "6": setView("journal"); break;
+    case "4": setView("todos"); break;
+    case "5": setView("journal"); break;
     case "n": e.preventDefault(); focusAdd(); break;
     case "/": e.preventDefault(); openSearch(); break;
     case "u": undoDelete(); break;
@@ -1558,13 +1605,14 @@ function toggleSelTodo() {
 }
 
 async function deleteSel() {
-  if (!["appointments", "achievements", "todos", "journal"].includes(view)) return;
+  if (!["appointments", "todos", "journal"].includes(view)) return;
   const row = document.querySelector(`#${view} .row.sel`);
   if (!row) return;
   const item = currentList().find(x => x.id === row.dataset.id);
   if (!item) return;
   const keep = sel;
-  await deleteWithUndo(view, item);
+  // the log mixes stores — delete from the row's own entity, not the view's name.
+  await deleteWithUndo(row.dataset.entity || view, item);
   // keep the selection on the next row (or the new last one) instead of losing it
   sel = Math.min(keep, currentList().length - 1);
   render();
