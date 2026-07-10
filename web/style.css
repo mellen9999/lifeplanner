@@ -5,6 +5,7 @@
   --ach: #00d75f;   /* achievement = green  */
   --appt: #5fafff;  /* appointment = blue   */
   --todo: #ffd700;  /* due todo    = yellow */
+  --jrnl: #d75fd7;  /* diary entry = violet */
   --mono: ui-monospace, "JetBrains Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
 }
 
@@ -104,7 +105,8 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
   cursor: pointer; -webkit-appearance: none; appearance: none;
 }
 .add input:focus, .add textarea:focus, .add input.flash { outline: 2px solid var(--accent); }
-.add input.title { flex: 1 1 200px; }
+.add input.title, .add textarea.title { flex: 1 1 200px; }
+.add textarea { resize: vertical; min-height: 2.4em; vertical-align: top; }
 .add input[type="date"], .add input[type="time"] { color-scheme: dark light; }
 .add button {
   font: inherit; background: var(--bg); color: var(--fg);
@@ -126,6 +128,12 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 /* a long unbroken title (e.g. a pasted url) must wrap, not overflow the row */
 .row .title, .row .body { overflow-wrap: anywhere; }
 .row .sub { color: var(--muted); font-size: 13px; }
+/* diary: a quiet date band before each day's entries, and body text that keeps
+   the line breaks the user typed */
+.jday { padding: 10px 10px 5px; color: var(--muted); font-size: 13px; font-weight: 600;
+  letter-spacing: .02em; border-bottom: 1px solid var(--line); }
+.jday.today { color: var(--accent); }
+.jbody { white-space: pre-wrap; }
 .row .del { margin-left: auto; color: var(--muted); cursor: pointer; padding: 0 4px; }
 .row:hover .del:hover, .row.sel .del:hover { color: var(--inv-bg); background: var(--inv-fg); }
 /* armed: first click turned × into a confirm. red = destructive, second click deletes. */
@@ -172,6 +180,7 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .mk.ach { background: var(--ach); }
 .mk.appt { background: var(--appt); }
 .mk.todo { background: var(--todo); }
+.mk.jrnl { background: var(--jrnl); }
 
 /* ---- calendar ---- */
 #cal-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
@@ -340,10 +349,11 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .rowedit { margin-left: auto; color: var(--muted); cursor: pointer; padding: 0 6px; font-size: 12px; }
 .row:hover .rowedit:hover, .row.sel .rowedit:hover { color: var(--inv-bg); background: var(--inv-fg); }
 .row.editing { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: var(--bg); color: var(--fg); }
-.row.editing input, .row.editing select { font: inherit; background: var(--field); color: var(--fg);
+.row.editing input, .row.editing textarea, .row.editing select { font: inherit; background: var(--field); color: var(--fg);
   border: 1px solid var(--line); padding: 5px 7px; border-radius: 0; }
-.row.editing input:focus { outline: 2px solid var(--accent); }
-.row.editing input.title { flex: 1 1 180px; }
+.row.editing input:focus, .row.editing textarea:focus { outline: 2px solid var(--accent); }
+.row.editing input.title, .row.editing textarea.title { flex: 1 1 180px; }
+.row.editing textarea { resize: vertical; min-height: 2.4em; vertical-align: top; }
 .row.editing button.rowedit { margin-left: 0; border: 1px solid var(--fg); padding: 5px 12px; color: var(--fg); background: var(--bg); }
 .row.editing button.rowedit:hover { background: var(--inv-bg); color: var(--inv-fg); }
 

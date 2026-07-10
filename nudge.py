@@ -12,6 +12,8 @@ config via env (no ntfy server/topic → does nothing, so it's safe/optional):
   LIFEPLANNER_STANDUP_HOUR   hour 0-23 the daily standup may fire (default 8)
   LIFEPLANNER_REVIEW_DOW     weekday for the weekly review, mon=0 (default 6 = sun)
   LIFEPLANNER_REVIEW_HOUR    hour the weekly review may fire (default 18)
+  LIFEPLANNER_JOURNAL_HOUR   hour the nightly "write your diary" prompt may fire
+                             (default 21); skipped on days you've already written one
   LIFEPLANNER_NUDGE          set to 0/off/false to disable entirely
 """
 
@@ -36,6 +38,7 @@ def _int_env(name, default, lo, hi):
 STANDUP_HOUR = _int_env("LIFEPLANNER_STANDUP_HOUR", 8, 0, 23)
 REVIEW_DOW = _int_env("LIFEPLANNER_REVIEW_DOW", 6, 0, 6)
 REVIEW_HOUR = _int_env("LIFEPLANNER_REVIEW_HOUR", 18, 0, 23)
+JOURNAL_HOUR = _int_env("LIFEPLANNER_JOURNAL_HOUR", 21, 0, 23)
 
 
 def _enabled():
@@ -151,6 +154,21 @@ def main(now=None):
                 pass  # ntfy down → retry next run, don't mark fired
         else:
             state["standup"], changed = today, True  # clean day → no nag, but don't recheck
+
+    # nightly diary prompt: once per day at/after its hour — but only if nothing's
+    # been journaled today, so a day you've already written gets no nag. tapping the
+    # push opens the journal view to write. this is the forcing function for the diary.
+    if now.hour >= JOURNAL_HOUR and state.get("journal") != today:
+        wrote_today = any(j.get("when", "")[:10] == today for j in store.list_items("journal"))
+        if wrote_today:
+            state["journal"], changed = today, True  # already written → no prompt
+        else:
+            try:
+                notify.send("journal", "what happened today? tap to write it down.",
+                            priority=3, tags=["memo"], view="journal")
+                state["journal"], changed = today, True
+            except OSError:
+                pass  # ntfy down → retry next run, don't mark fired
 
     # weekly review: once on the configured weekday, at/after its hour.
     if (now.weekday() == REVIEW_DOW and now.hour >= REVIEW_HOUR

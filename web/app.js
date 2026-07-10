@@ -8,7 +8,7 @@ const ACCENTS = [
 const DOW = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const MONTHS = ["january", "february", "march", "april", "may", "june",
   "july", "august", "september", "october", "november", "december"];
-const VIEWS = ["today", "calendar", "appointments", "achievements", "todos"];
+const VIEWS = ["today", "calendar", "appointments", "achievements", "todos", "journal"];
 const REPEAT_OPTIONS = [
   { value: "", label: "once" },
   { value: "daily", label: "daily" },
@@ -18,7 +18,7 @@ const REPEAT_OPTIONS = [
   { value: "monthly", label: "monthly" },
 ];
 
-let state = { achievements: [], todos: [], appointments: [], settings: {}, version: "" };
+let state = { achievements: [], todos: [], appointments: [], journal: [], settings: {}, version: "" };
 let slipping = null;   // cached /api/slipping response
 let weekReview = null; // cached /api/review?days=7 response
 let view = "today";
@@ -272,7 +272,14 @@ async function deleteWithUndo(entity, item) {
   }
   lastDeleted = { entity, item };
   await refresh();
-  toast(`deleted "${item.title}"`, "undo (u)", undoDelete);
+  toast(`deleted "${itemLabel(item)}"`, "undo (u)", undoDelete);
+}
+
+// a short human label for any item — title for most, the first line of the body
+// for a diary entry (which has no title). used in the delete/undo toast.
+function itemLabel(item) {
+  const s = item.title || (item.body || "").split("\n")[0];
+  return s.length > 40 ? s.slice(0, 40) + "…" : (s || "entry");
 }
 function undoDelete() {
   if (!lastDeleted) return;
@@ -388,14 +395,23 @@ function currentList() {
   if (view === "achievements") return applySearch(state.achievements);
   if (view === "todos") return orderedTodos();
   if (view === "appointments") { const o = orderedAppointments(applySearch(state.appointments)); return [...o.up, ...o.past]; }
+  if (view === "journal") return orderedJournal();
   return [];
+}
+
+// diary entries newest-first, by timestamp then insertion order (so two on the
+// same minute keep a stable order). the flat order the keyboard nav walks — matches
+// the rows renderJournal paints, even with day-headers interleaved between them.
+function orderedJournal() {
+  return applySearch(state.journal).slice().sort((a, b) =>
+    ((b.when || "") + (b.created || "")).localeCompare((a.when || "") + (a.created || "")));
 }
 
 // live text filter (the `/` search). matches title + the contextual fields so
 // "dentist", a date fragment, or a location all find what you'd expect.
 function matchesSearch(it) {
   const q = search.toLowerCase();
-  return [it.title, it.note, it.location, it.due, it.date, it.when]
+  return [it.title, it.note, it.location, it.due, it.date, it.when, it.body]
     .some(f => (f || "").toLowerCase().includes(q));
 }
 function applySearch(items) { return search ? items.filter(matchesSearch) : items; }
@@ -419,7 +435,7 @@ function visibleTodos() {
 // calls render() again, so the newly-active view is always fresh.
 const RENDERERS = {
   today: renderToday, calendar: renderCalendar, appointments: renderAppointments,
-  achievements: renderAchievements, todos: renderTodos,
+  achievements: renderAchievements, todos: renderTodos, journal: renderJournal,
 };
 function render() {
   renderSyncBanner();
@@ -431,7 +447,7 @@ function render() {
 }
 
 function openSearch() {
-  if (!["appointments", "achievements", "todos"].includes(view)) return;
+  if (!["appointments", "achievements", "todos", "journal"].includes(view)) return;
   searchOpen = true;
   document.getElementById("searchbar").hidden = false;
   const inp = document.getElementById("search-input");
@@ -461,6 +477,14 @@ function makeField(f) {
       s.appendChild(op);
     });
     return s;
+  }
+  if (f.type === "textarea") {  // multi-line — the diary body
+    const ta = el("textarea");
+    if (f.cls) ta.className = f.cls;
+    ta.placeholder = f.ph || "";
+    ta.rows = f.rows || 3;
+    if (f.value != null && f.value !== "") ta.value = f.value;
+    return ta;
   }
   const i = el("input");
   i.type = f.type || "text";
@@ -625,11 +649,11 @@ function editRow(item, entity) {
   form.onsubmit = (e) => {
     e.preventDefault();
     const v = {}; for (const k in inputs) v[k] = inputs[k].value.trim();
-    if (!v.title) return;
+    if (!v.title && !v.body) return;  // journal's required field is body, not title
     editing = null;
     patch(entity, item.id, buildPatch(entity, v));
   };
-  form._first = inputs.title;
+  form._first = inputs.title || inputs.body;
   return form;
 }
 
@@ -648,6 +672,11 @@ function editFields(entity, item) {
     { name: "date", type: "date", value: item.date },
     { name: "note", ph: "note", value: item.note },
   ];
+  if (entity === "journal") return [
+    { name: "body", type: "textarea", cls: "title", value: item.body, rows: 4 },
+    { name: "date", type: "date", value: (item.when || "").slice(0, 10) },
+    { name: "time", type: "time", value: timeOf(item.when) },
+  ];
   return [ // todos
     { name: "title", cls: "title", value: item.title },
     { name: "due", type: "date", value: item.due },
@@ -661,6 +690,8 @@ function buildPatch(entity, v) {
     return { title: v.title, when: v.time ? `${v.date} ${v.time}` : v.date, end: v.endtime ? `${v.date} ${v.endtime}` : "", location: v.location, recur: parseRepeat(v.repeat, v.until) };
   if (entity === "achievements")
     return { title: v.title, date: v.date, note: v.note };
+  if (entity === "journal")
+    return { body: v.body, when: v.time ? `${v.date} ${v.time}` : v.date };
   return { title: v.title, due: v.due, recur: parseRepeat(v.repeat, v.until) };
 }
 
@@ -1198,6 +1229,71 @@ function renderTodos() {
   root.appendChild(body);
 }
 
+// ---- journal ----------------------------------------------------------------
+
+function renderJournal() {
+  const root = document.getElementById("journal");
+  clear(root);
+  const n = state.journal.length;
+  const h = el("h2", "section-h", "journal");
+  h.appendChild(el("span", "count", `${n} entr${n === 1 ? "y" : "ies"}`));
+  root.appendChild(h);
+  // composer: a textarea (any length) + a date/time so a memory can be backdated.
+  // the date sticks at today so logging several moments in one sitting is one field.
+  root.appendChild(addRow([
+    { name: "body", type: "textarea", cls: "title", ph: "what happened? — anything worth remembering", rows: 3 },
+    { name: "date", type: "date", value: todayIso() },
+    { name: "time", type: "time" },
+  ], d => {
+    // a same-day log with no time set stamps the current moment (server fills it),
+    // so it slots in chronologically and shows a clock; a backdated day keeps just
+    // its date (a day-level memory legitimately has no time).
+    const when = d.time ? `${d.date} ${d.time}` : (d.date === todayIso() ? "" : d.date);
+    add("journal", { body: d.body, when });
+  }));
+
+  const body = el("div");
+  const items = orderedJournal();
+  if (!items.length) {
+    body.appendChild(el("div", "empty", "no entries yet. write your first — press n."));
+    root.appendChild(body);
+    return;
+  }
+  // one flat list, newest first, with a lightweight date header before each new day
+  // so it reads like a diary you can scan by date. sel index tracks `items` (the
+  // headers are non-.row, so keyboard nav + the .sel class still land on entries).
+  const list = el("div", "list");
+  let lastDate = "";
+  items.forEach((j, i) => {
+    const ds = (j.when || "").slice(0, 10);
+    if (ds !== lastDate) { list.appendChild(journalDayHead(ds)); lastDate = ds; }
+    const row = listRow(j, "journal", [
+      el("span", "when", timeOf(j.when) || "—"),
+      journalBody(j.body),
+    ]);
+    if (i === sel && j.id !== editing) row.classList.add("sel");
+    if (j.id !== editing) row.onclick = () => { sel = i; render(); };
+    list.appendChild(row);
+  });
+  body.appendChild(list);
+  root.appendChild(body);
+}
+
+// a date divider between days in the journal, e.g. "wed · jul 9, 2026".
+function journalDayHead(ds) {
+  const d = new Date(ds + "T00:00");
+  const label = isNaN(d) ? (ds || "undated")
+    : `${DOW[(d.getDay() + 6) % 7]} · ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}, ${d.getFullYear()}`;
+  const head = el("div", "jday", label);
+  if (ds === todayIso()) head.classList.add("today");
+  return head;
+}
+
+// the diary text — pre-wrap so line breaks the user typed are kept.
+function journalBody(text) {
+  return el("div", "body jbody", text || "");
+}
+
 // ---- calendar ---------------------------------------------------------------
 
 function renderCalendar() {
@@ -1240,6 +1336,7 @@ function renderCalendar() {
       info.appts.forEach(a => lines.push(["appt", a.time, a.title, false]));
       info.todos.forEach(t => lines.push(["todo", "", t.title, t.done]));
       info.wins.forEach(w => lines.push(["ach", "", w.title, false]));
+      info.jrnl.forEach(j => lines.push(["jrnl", "", (j.body || "").split("\n")[0], false]));
       const CAP = 4;
       lines.slice(0, CAP).forEach(([k, tm, ti, dn]) => evs.appendChild(eventLine(k, tm, ti, dn)));
       if (lines.length > CAP) evs.appendChild(el("div", "cell-more", `+${lines.length - CAP} more`));
@@ -1270,6 +1367,8 @@ function renderDayPanel() {
     items.push(["todo", (todoDoneOn(t, selDay) ? "✓ " : "") + t.title]); });
   state.achievements.filter(a => a.date === selDay)
     .forEach(a => items.push(["ach", a.title]));
+  state.journal.filter(j => (j.when || "").slice(0, 10) === selDay)
+    .forEach(j => items.push(["jrnl", (j.body || "").split("\n")[0]]));
   if (!items.length) panel.appendChild(el("div", "muted small", "nothing on this day"));
   items.forEach(([kind, text]) => {
     const li = el("div", "li");
@@ -1296,7 +1395,7 @@ function eventLine(kind, time, title, done) {
 // expanded, with their times) — so the calendar shows what's on, not just dots.
 function itemsByDay() {
   const m = {};
-  const get = ds => (m[ds] = m[ds] || { appts: [], todos: [], wins: [] });
+  const get = ds => (m[ds] = m[ds] || { appts: [], todos: [], wins: [], jrnl: [] });
   const from = addDays(iso(startOfMonth(calCursor)), -7);
   const to = addDays(iso(new Date(calCursor.getFullYear(), calCursor.getMonth() + 1, 0)), 7);
   state.appointments.forEach(a => apptOccurrences(a, from, to).forEach(w =>
@@ -1307,6 +1406,7 @@ function itemsByDay() {
     else if (t.due) get(t.due).todos.push(t);
   });
   state.achievements.forEach(a => { if (a.date) get(a.date).wins.push(a); });
+  state.journal.forEach(j => { const ds = (j.when || "").slice(0, 10); if (ds) get(ds).jrnl.push(j); });
   Object.values(m).forEach(d => d.appts.sort((a, b) => (a.when > b.when ? 1 : -1)));
   return m;
 }
@@ -1348,7 +1448,7 @@ function moveSel(d) {
 }
 
 function editSel() {
-  if (!["appointments", "achievements", "todos"].includes(view)) return;
+  if (!["appointments", "achievements", "todos", "journal"].includes(view)) return;
   const list = currentList();
   if (sel < 0 || sel >= list.length) return;
   editing = list[sel].id;
@@ -1398,6 +1498,7 @@ document.addEventListener("keydown", (e) => {
     case "3": setView("appointments"); break;
     case "4": setView("achievements"); break;
     case "5": setView("todos"); break;
+    case "6": setView("journal"); break;
     case "n": e.preventDefault(); focusAdd(); break;
     case "/": e.preventDefault(); openSearch(); break;
     case "u": undoDelete(); break;
@@ -1457,7 +1558,7 @@ function toggleSelTodo() {
 }
 
 async function deleteSel() {
-  if (!["appointments", "achievements", "todos"].includes(view)) return;
+  if (!["appointments", "achievements", "todos", "journal"].includes(view)) return;
   const row = document.querySelector(`#${view} .row.sel`);
   if (!row) return;
   const item = currentList().find(x => x.id === row.dataset.id);

@@ -1,6 +1,6 @@
 # lifeplanner
 
-a local, private life dashboard — **calendar · appointments · achievements · todos** — that an
+a local, private life dashboard — **calendar · appointments · achievements · todos · journal** — that an
 llm can read and write too. one set of plain json files on your disk, two doors into them: a
 vanilla web ui for you, and an [mcp](https://modelcontextprotocol.io) server for an assistant
 like claude. no accounts, no cloud, no tracking. your data never leaves your machine.
@@ -12,6 +12,7 @@ like claude. no accounts, no cloud, no tracking. your data never leaves your mac
 - **stdlib-only web app** — python 3.8+, no dependencies. clone and run.
 - **square, terminal-styled ui** — light + dark, eight accent colors, keyboard-first (vim keys).
 - **routines** — todos can repeat (daily/weekly); a routine like "workout" shows every day and is ticked off per-day, so it's back tomorrow.
+- **diary** — a timestamped journal for what happened, so you still have it years later; log many entries a day, backdate a memory, and a nightly nudge reminds you to write. private — never leaves your disk, never touches the calendar feed.
 - **works on your phone** — installable PWA over your private network; optional `.ics` / caldav export if you'd rather see appointments in a native calendar app.
 - **mcp server** — let an assistant log your wins, add todos, flag what's slipping, and review your week (one optional dep).
 - **it reaches out** — optional push that nudges you: a daily standup + weekly review, with overdue
@@ -40,7 +41,7 @@ five sections (number keys switch them):
    days, and a streak ribbon. open this first each day.
 2. **calendar** — month grid; click a day to see what's on it and add an appointment with the **full
    controls right there** (time, place, repeat, end-date) — no jumping to another page. colored
-   marks: green = a win, blue = an appointment, yellow = a due todo.
+   marks: green = a win, blue = an appointment, yellow = a due todo, violet = a diary entry.
 3. **appointments** — your agenda. add with a date (+ optional time) and place; set **repeat** (daily
    / weekly / every-other-week / monthly, with an optional end date) to make it recur. the list is
    grouped **upcoming** (soonest first, recurring series resolved to their next occurrence) and
@@ -57,6 +58,12 @@ five sections (number keys switch them):
    urgency-sorted. set **repeat** to make a todo a daily/weekly **routine** (eat lunch, workout, meds) — it
    shows up every day in "todos due", ticked off per-day so it's back tomorrow; routines never count as
    "overdue" (a missed day is just a day).
+6. **journal** — a private diary. write what happened in a free-text entry stamped to the moment;
+   log as many as you like a day and they stack under each date, newest day first. set a date to
+   **backdate a memory** (something from last week, or years ago). there's no title — a brain-dump is
+   just what happened. entries never go on the calendar feed or your phone; they're yours to look back
+   on. a **nightly nudge** ("what happened today?") reminds you to write, and stays quiet on days you
+   already have.
 
 every item can be edited in place (`e` or double-click) or deleted (`×` / `d d`, undo with `u`).
 nothing needs saving — it's written to disk the moment you add it.
@@ -65,7 +72,7 @@ nothing needs saving — it's written to disk the moment you add it.
 
 | keys | action | | keys | action |
 |---|---|---|---|---|
-| `1` … `5` | switch section | | `h` `j` `k` `l` | calendar: move day in grid |
+| `1` … `6` | switch section | | `h` `j` `k` `l` | calendar: move day in grid |
 | `n` | new item | | `H` / `L` | calendar: jump month |
 | `j` / `k` | move selection (lists) | | `e` / dbl-click | edit selected |
 | `x` | toggle todo done | | `enter` | save edit / open day |
@@ -87,9 +94,9 @@ then has these tools, all writing to the same local files the web app reads:
 
 partner: `whats_slipping` (what needs attention now) · `review_period` (how the last N days went)
 read: `get_overview` · `get_day` · `get_week` · `get_range` · `list_achievements` ·
-`list_todos` · `list_appointments`
-write: `add_achievement` · `add_todo` · `complete_todo` · `add_appointment` ·
-`update_achievement` · `update_todo` · `update_appointment` · `delete_item`
+`list_todos` · `list_appointments` · `list_journal`
+write: `add_achievement` · `add_todo` · `complete_todo` · `add_appointment` · `add_journal` ·
+`update_achievement` · `update_todo` · `update_appointment` · `update_journal` · `delete_item`
 
 writes from the assistant appear in your open ui within a few seconds; your edits are visible to it
 immediately. (works with any mcp client — claude desktop, claude code, etc.)
@@ -200,9 +207,10 @@ it's stateful (each reminder fires once) and does nothing without the env vars, 
 ## nudges — the forcing function (optional)
 
 a planner you have to remember to open is just a todo list. `nudge.py` reaches out instead: a
-**daily standup** ("2 overdue · 3d since a win") and a **weekly review** pushed to your phone, with
-overdue alerts that **escalate** the longer you ignore them — 1-2 days normal, 3-6 high priority,
-**7+ days urgent (bypasses do-not-disturb, your phone rings).** ignoring becomes expensive.
+**daily standup** ("2 overdue · 3d since a win"), a **weekly review**, and a **nightly journal
+prompt** ("what happened today?") pushed to your phone, with overdue alerts that **escalate** the
+longer you ignore them — 1-2 days normal, 3-6 high priority, **7+ days urgent (bypasses
+do-not-disturb, your phone rings).** ignoring becomes expensive.
 
 it rides the same ntfy setup as reminders. run it on a timer (every ~15 min):
 
@@ -216,7 +224,8 @@ python3 nudge.py
 it only pushes when something's actually slipping (no nagging on a clean day), fires each nudge at
 most once per day / per week, and does nothing without the env vars — fully optional. tune the timing
 with `LIFEPLANNER_STANDUP_HOUR` (default 8), `LIFEPLANNER_REVIEW_DOW` (mon=0, default 6=sun),
-`LIFEPLANNER_REVIEW_HOUR` (default 18); set `LIFEPLANNER_NUDGE=off` to silence it.
+`LIFEPLANNER_REVIEW_HOUR` (default 18), `LIFEPLANNER_JOURNAL_HOUR` (default 21, the nightly diary
+prompt — skipped on days you've already written); set `LIFEPLANNER_NUDGE=off` to silence it.
 
 set `LIFEPLANNER_URL` (your app's address) and **tapping a notification opens lifeplanner**. ntfy
 isn't just phones — subscribe to the same server + topic from the [ntfy web app or desktop client](https://docs.ntfy.sh/subscribe/phone/)
@@ -239,6 +248,7 @@ all optional, via environment variables:
 | `LIFEPLANNER_REMINDERS` | `1440,60` | reminder offsets in minutes before a timed appointment |
 | `LIFEPLANNER_STANDUP_HOUR` | `8` | hour the daily standup nudge may fire |
 | `LIFEPLANNER_REVIEW_DOW` · `_HOUR` | `6` · `18` | weekly review day (mon=0) + hour |
+| `LIFEPLANNER_JOURNAL_HOUR` | `21` | hour the nightly "write your diary" prompt may fire |
 | `LIFEPLANNER_NUDGE` | unset | set to `off` to disable nudges entirely |
 | `LIFEPLANNER_CALDAV` | unset | set to `off` to force local-only appointments (ignore `.caldav.json`) |
 

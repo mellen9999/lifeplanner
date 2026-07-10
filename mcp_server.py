@@ -260,6 +260,38 @@ def update_achievement(item_id: str, title: str = "", date: str = "", note: str 
 
 
 @mcp.tool()
+def add_journal(text: str, when: str = "") -> dict:
+    """write a diary/journal entry — a timestamped record of what happened, kept so
+    it's still there to look back on years from now. `text` is the entry itself,
+    free-form and any length (an event, a feeling, a milestone, how the day went).
+    `when` defaults to right now; pass 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM' to backdate
+    a memory (e.g. logging something from last week). write one whenever the user
+    recounts something worth remembering — don't wait to be asked to 'journal'."""
+    return store.add_item("journal", {"body": text, "when": when})
+
+
+@mcp.tool()
+def list_journal(limit: int = 25) -> list:
+    """recent diary entries, newest first (by their timestamp). use to recall what's
+    been happening or to reflect a stretch of days back to the user."""
+    js = sorted(store.list_items("journal"),
+                key=lambda j: (j.get("when", ""), j.get("created", "")), reverse=True)
+    return js[:max(1, limit)]
+
+
+@mcp.tool()
+def update_journal(item_id: str, text: str = "", when: str = "") -> dict:
+    """edit a diary entry by id. only non-empty fields change; `when`
+    ('YYYY-MM-DD' or with ' HH:MM') re-dates the entry."""
+    patch = {}
+    if text:
+        patch["body"] = text
+    if when:
+        patch["when"] = when
+    return store.update_item("journal", item_id, patch) or {"error": "not found", "id": item_id}
+
+
+@mcp.tool()
 def get_week() -> dict:
     """everything in the next 7 days, grouped by date — appointments, due todos, wins."""
     today = date.today()
@@ -287,7 +319,7 @@ def get_range(start: str, end: str) -> dict:
 
 @mcp.tool()
 def delete_item(kind: str, item_id: str) -> dict:
-    """delete an item. kind = achievements | todos | appointments."""
+    """delete an item. kind = achievements | todos | appointments | journal."""
     if kind not in store.ENTITIES:
         return {"error": f"kind must be one of {store.ENTITIES}"}
     try:

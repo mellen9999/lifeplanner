@@ -62,13 +62,25 @@ def appointments_status():
         return {"backend": "local", "source": "local"}
     return {"backend": "caldav", "source": _appt_source}
 
-ENTITIES = ("achievements", "todos", "appointments")
+ENTITIES = ("achievements", "todos", "appointments", "journal")
 # fields a PATCH is allowed to touch, per entity — anything else is dropped so a
 # stray ui/llm key can't pollute stored items. id/created are never patchable.
 PATCHABLE = {
     "achievements": ("title", "date", "note"),
     "todos": ("title", "done", "due", "recur", "order"),
     "appointments": ("title", "when", "end", "location", "note", "recur"),
+    # a diary entry: free-text `body` stamped to a moment (`when`, backdatable).
+    # no title — a brain-dump is just what happened, not a headline.
+    "journal": ("body", "when"),
+}
+# each entity's one required, non-empty text field — its primary content. a save
+# with this blank is rejected loudly (a titleless win or bodyless diary entry is
+# meaningless). the single place "what makes an item real" is declared.
+REQUIRED = {
+    "achievements": "title",
+    "todos": "title",
+    "appointments": "title",
+    "journal": "body",
 }
 RECUR_FREQS = ("daily", "weekly", "monthly")
 DEFAULT_SETTINGS = {"theme": "dark", "accent": "#ff8700", "ics_sync_path": ""}
@@ -232,7 +244,7 @@ def _coerce(name, key, value):
         return _norm_date(s) if s else ""
     if key == "date":
         return _norm_date(str(value or "").strip())
-    if key in ("title", "location", "note"):
+    if key in ("title", "location", "note", "body"):
         return str(value or "").strip()
     if key == "done":
         return bool(value)
@@ -245,15 +257,22 @@ def _coerce(name, key, value):
 
 
 def _normalize(name, item):
-    """coerce + default every field so the stored item is well-formed. loud on no title."""
-    title = _coerce(name, "title", item.get("title"))
-    if not title:
-        raise ValueError("title is required")
-    base = {"id": uuid4().hex[:12], "title": title,
+    """coerce + default every field so the stored item is well-formed. loud when the
+    entity's required field (title, or body for the diary) is empty."""
+    req = REQUIRED.get(name, "title")
+    primary = _coerce(name, req, item.get(req))
+    if not primary:
+        raise ValueError(f"{req} is required")
+    base = {"id": uuid4().hex[:12], req: primary,
             "created": datetime.now().isoformat(timespec="seconds")}
     for key in PATCHABLE[name]:
-        if key != "title":
+        if key != req:
             base[key] = _coerce(name, key, item.get(key))
+    # a diary entry stamps to the moment it's written (with time) unless the caller
+    # backdated it — _norm_when drops the clock on an empty value, which would lose
+    # the time-of-day a log is meant to keep, so fill now() here instead.
+    if name == "journal" and not str(item.get("when") or "").strip():
+        base["when"] = datetime.now().isoformat(timespec="minutes")
     # an appointment's end only counts if it's a real span after the start
     if name == "appointments":
         base["end"] = _reconcile_end(base.get("when", ""), base.get("end", ""))
@@ -595,6 +614,9 @@ def state():
         "todos": list_items("todos"),
         "appointments": sorted(list_items("appointments"),
                                key=lambda a: a.get("when", "")),
+        "journal": sorted(list_items("journal"),
+                          key=lambda j: (j.get("when", ""), j.get("created", "")),
+                          reverse=True),
         "sync": appointments_status(),
         "settings": get_settings(),
         "version": version(),
@@ -633,7 +655,7 @@ def days(start, end):
 
     def slot(d):
         return out.setdefault(
-            d, {"date": d, "appointments": [], "todos": [], "achievements": []})
+            d, {"date": d, "appointments": [], "todos": [], "achievements": [], "journal": []})
 
     for a in list_items("appointments"):
         for w in occurrences_in(a, s, e):
@@ -653,13 +675,18 @@ def days(start, end):
         dt = a.get("date")
         if dt and s <= dt <= e:
             slot(dt)["achievements"].append(a)
+    # diary entries bucket on the date of their `when` (ignoring time-of-day).
+    for j in list_items("journal"):
+        w = j.get("when", "")
+        if w and s <= w[:10] <= e:
+            slot(w[:10])["journal"].append(j)
     return out
 
 
 def day(target):
     """all items on a given YYYY-MM-DD date (the empty shape if nothing falls on it)."""
     d = _norm_date(target)
-    return days(d, d).get(d, {"date": d, "appointments": [], "todos": [], "achievements": []})
+    return days(d, d).get(d, {"date": d, "appointments": [], "todos": [], "achievements": [], "journal": []})
 
 
 # ---- .ics generation --------------------------------------------------------
