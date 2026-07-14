@@ -509,6 +509,21 @@ function makeField(f) {
   return i;
 }
 
+// the "until" end-date only means something for a repeating item — hide it while
+// repeat is "once" so the row doesn't show a mystery second date field, and clear
+// it on hide so a stale value can't silently ride along with a later submit.
+function wireUntil(inputs) {
+  const { repeat, until } = inputs;
+  if (!repeat || !until) return;
+  until.title = "repeats until (optional)";
+  const sync = () => {
+    until.style.display = repeat.value ? "" : "none";
+    if (!repeat.value) until.value = "";
+  };
+  repeat.addEventListener("change", sync);
+  sync();
+}
+
 // one-tap relative date setters next to a date input — so "in 2 days" is a tap,
 // not a calendar hunt (matters most on the phone, where there's no claude to parse
 // "before thursday"). the native picker stays for exact dates.
@@ -532,6 +547,7 @@ function addRow(fields, onSubmit) {
     form.appendChild(i);
     if (f.chips) form.appendChild(dateChips(i));  // relative quick-set next to the field
   });
+  wireUntil(inputs);
   const btn = el("button", null, "add"); btn.type = "submit";
   form.appendChild(btn);
   form.onsubmit = (e) => {
@@ -658,6 +674,7 @@ function editRow(item, entity) {
     inputs[f.name] = i;
     form.appendChild(i);
   });
+  wireUntil(inputs);
   const save = el("button", "rowedit", "save"); save.type = "submit";
   const cancel = el("span", "del", "esc");
   cancel.onclick = () => { editing = null; render(); };

@@ -142,6 +142,19 @@ class StoreTest(unittest.TestCase):
         store.add_item("todos", {"title": "x"})
         self.assertNotEqual(v1, store.version())
 
+    # a read must never flip the version token: the ui polls version and refetches
+    # state on change, and a state fetch refreshes the appointments cache — if that
+    # refresh rewrote an unchanged file, every poll would trigger the next refresh
+    # (permanent 4s repaint loop, wiping half-typed add forms).
+    def test_cache_rewrite_of_same_content_keeps_mtime(self):
+        items = [{"id": "a1", "title": "x", "when": "2026-07-16T09:00"}]
+        store._cache_write(items)
+        m1 = store._path("appointments.cache").stat().st_mtime_ns
+        store._cache_write(list(items))
+        self.assertEqual(m1, store._path("appointments.cache").stat().st_mtime_ns)
+        store._cache_write(items + [{"id": "b2", "title": "y"}])
+        self.assertNotEqual(m1, store._path("appointments.cache").stat().st_mtime_ns)
+
     # ---- day view ----
     def test_day_groups_by_date(self):
         store.add_item("appointments", {"title": "appt", "when": "2026-06-24 09:00"})

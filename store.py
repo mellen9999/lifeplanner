@@ -176,7 +176,15 @@ def _write_raw(name, value):
 # ---- caldav-backed appointments ---------------------------------------------
 
 def _cache_write(items):
+    # skip the write when nothing changed: version() reads this file's mtime as a
+    # change signal, and every state fetch refreshes the cache — an unconditional
+    # write would flip the version on each poll, putting the ui in a permanent
+    # refresh loop (repainting every 4s and wiping half-typed add forms).
     try:
+        blob = json.dumps(items, indent=2, ensure_ascii=False)
+        p = _path("appointments.cache")
+        if p.exists() and p.read_text("utf-8") == blob:
+            return
         _write_raw("appointments.cache", items)
     except OSError:
         pass
