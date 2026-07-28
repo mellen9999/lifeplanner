@@ -18,7 +18,7 @@ const REPEAT_OPTIONS = [
   { value: "monthly", label: "monthly" },
 ];
 
-let state = { achievements: [], todos: [], appointments: [], journal: [], settings: {}, version: "" };
+let state = { achievements: [], todos: [], appointments: [], journal: [], settings: {}, coach: {}, version: "" };
 let slipping = null;   // cached /api/slipping response
 let weekReview = null; // cached /api/review?days=7 response
 let view = "today";
@@ -55,6 +55,18 @@ function el(tag, cls, txt) {
   return e;
 }
 function clear(node) { node.replaceChildren(); }
+
+// compact "how long ago" for a timestamp — used by the coach directive's meta.
+function agoLabel(iso) {
+  const d = new Date(iso);
+  if (!iso || isNaN(d)) return "";
+  const mins = Math.round((Date.now() - d.getTime()) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const h = Math.round(mins / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
 
 function fmtWhen(when) {
   if (!when) return "";
@@ -879,6 +891,9 @@ function renderToday() {
   clear(root);
   const t = todayIso();
   const now = new Date();
+  // the coach directive — the single next optimal move, first thing on the page.
+  const coach = renderCoach();
+  if (coach) root.appendChild(coach);
   const head = el("h2", "section-h", `today — ${MONTHS[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`);
   root.appendChild(head);
 
@@ -947,6 +962,21 @@ function renderToday() {
 
   // streak ribbon
   root.appendChild(streakRibbon());
+}
+
+// the coach directive box — one claude-written line pointing at the next optimal
+// move, with a muted "how fresh" stamp. returns null when nothing's written yet.
+function renderCoach() {
+  const c = state.coach || {};
+  const line = (c.line || "").trim();
+  if (!line) return null;
+  const box = el("div", "coach");
+  const l = el("div", "coach-line");
+  l.append(el("span", "coach-caret", "▸ "), document.createTextNode(line));
+  box.appendChild(l);
+  const ago = agoLabel(c.created);
+  box.appendChild(el("div", "coach-meta", ago ? `coach · ${ago}` : "coach"));
+  return box;
 }
 
 function agendaCard(title, children) {

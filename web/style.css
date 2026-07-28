@@ -276,6 +276,12 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .muted { color: var(--muted); }
 .muted.small { font-size: 13px; margin-top: 6px; }
 
+/* ---- coach directive (the next optimal move, top of today) ---- */
+.coach { border: 1px solid var(--accent); border-left-width: 3px; padding: 11px 13px; margin-bottom: 12px; }
+.coach-line { font-size: 15px; line-height: 1.45; color: var(--fg); }
+.coach-caret { color: var(--accent); }
+.coach-meta { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-top: 7px; }
+
 /* ---- today / agenda ---- */
 .agenda { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-items: start; }
 @media (max-width: 720px) { .agenda { grid-template-columns: 1fr; } }

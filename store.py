@@ -505,6 +505,32 @@ def put_settings(patch):
     return s
 
 
+# ---- coach directive --------------------------------------------------------
+# a single claude-written "what's the next optimal move" line, written by the
+# lifeplanner-brief timer and shown at the very top of the today view. the store
+# is a pure reader/writer here — the judgement lives in the timer's prompt.
+
+def get_coach():
+    c = _read_raw("coach", {})
+    return c if isinstance(c, dict) else {}
+
+
+def set_coach(line):
+    """store the coach directive. no-ops when the line is unchanged so writing it
+    on a timer never flips the version token (which would repaint the ui every
+    run). returns the stored dict, or None if the line was blank."""
+    line = (line or "").strip()
+    if not line:
+        return None
+    with FileLock():
+        cur = get_coach()
+        if cur.get("line") == line:
+            return cur
+        obj = {"line": line, "created": datetime.now().isoformat(timespec="minutes")}
+        _write_raw("coach", obj)
+    return obj
+
+
 # ---- date helpers -----------------------------------------------------------
 
 def _norm_date(s):
@@ -678,6 +704,7 @@ def state():
                           reverse=True),
         "sync": appointments_status(),
         "settings": get_settings(),
+        "coach": get_coach(),
         "version": version(),
     }
 
@@ -689,7 +716,7 @@ def version():
     # derived from ENTITIES (+ settings + the hidden overlay, so a mute/unmute
     # refreshes every open ui) — a new entity's writes always flip the token; in
     # caldav mode appointments live on the server, so watch the cache.
-    names = ["settings", "hidden_appts"]
+    names = ["settings", "hidden_appts", "coach"]
     for e in ENTITIES:
         names.append("appointments.cache" if (e == "appointments" and _CALDAV is not None) else e)
     latest = 0
@@ -910,7 +937,7 @@ def export_bytes():
     restore by unzipping back into the data dir."""
     # derived from ENTITIES so a new entity can never be silently left out of a
     # backup. settings + the caldav cache round out the on-disk vault.
-    names = (*ENTITIES, "appointments.cache", "settings", "hidden_appts")
+    names = (*ENTITIES, "appointments.cache", "settings", "hidden_appts", "coach")
     # read raw bytes under the lock (a consistent snapshot), then compress
     # outside it — compression is CPU-bound and must not block concurrent writes.
     blobs = {}
