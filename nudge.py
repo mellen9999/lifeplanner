@@ -251,7 +251,7 @@ def main(now=None):
             and state.get("review") != today):
         try:
             notify.send("weekly review", review_text(review.review(7)),
-                        priority=4, tags=["calendar"], view="achievements")
+                        priority=4, tags=["calendar"], view="journal")
             state["review"], changed = today, True
         except OSError:
             pass

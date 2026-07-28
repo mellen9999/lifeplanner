@@ -285,9 +285,7 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .card2 .li { display: flex; gap: 9px; align-items: baseline; padding: 4px 0;
   border-bottom: 1px solid var(--line); }
 .card2 .li:last-of-type { border-bottom: none; }
-.card2 .li.overdue { color: var(--todo); }
 .card2 .li .sub { color: var(--muted); font-size: 13px; }
-.card2 .li.overdue .sub { color: var(--todo); }
 .card2 .tick { width: 14px; height: 14px; line-height: 12px; }
 .quick { margin-top: 9px; display: flex; gap: 6px; }
 .quick input { font: inherit; background: var(--field); color: var(--fg);
