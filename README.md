@@ -1,22 +1,29 @@
 # lifeplanner
 
-a local, private life dashboard — **calendar · appointments · achievements · todos · journal** — that an
+a local, private life dashboard — **calendar · appointments · todos · wins · journal** — that an
 llm can read and write too. one set of plain json files on your disk, two doors into them: a
 vanilla web ui for you, and an [mcp](https://modelcontextprotocol.io) server for an assistant
 like claude. no accounts, no cloud, no tracking. your data never leaves your machine.
 
-![the today view — what needs attention and this week's recap up top, then appointments, todos due, today's wins, and your streak](docs/today.png)
+![the today view — the coach's next move up top, then what needs attention, this week's recap, appointments, todos due, today's wins, and your streak](docs/today.png)
 
 ![the month calendar — appointments, due todos, and logged wins on one grid, with a day panel](docs/calendar.png)
+
+![the journal — diary entries and wins on one timeline, with the contribution heatmap and streak](docs/journal.png)
 
 - **stdlib-only web app** — python 3.8+, no dependencies. clone and run.
 - **square, terminal-styled ui** — light + dark, eight accent colors, keyboard-first (vim keys).
 - **routines** — todos can repeat (daily/weekly); a routine like "workout" shows every day and is ticked off per-day, so it's back tomorrow.
-- **diary** — a timestamped journal for what happened, so you still have it years later; log many entries a day, backdate a memory, and a nightly nudge reminds you to write. private — never leaves your disk, never touches the calendar feed.
+- **one life-log** — diary entries and wins share a single timeline, with a contribution heatmap and
+  an honest arcade streak. log many entries a day, backdate a memory, and a nightly nudge reminds you
+  to write. private — never leaves your disk, never touches the calendar feed.
 - **works on your phone** — installable PWA over your private network; optional `.ics` / caldav export if you'd rather see appointments in a native calendar app.
 - **mcp server** — let an assistant log your wins, add todos, flag what's slipping, and review your week (one optional dep).
+- **a coach, if you want one** — a next-move line at the top of today, and a chat box whose answers
+  can *act* on your planner (reschedule, log, add) through the same mcp tools — never delete.
 - **it reaches out** — optional push that nudges you: a daily standup + weekly review, with overdue
   alerts that escalate the longer you ignore them. as phone *and* desktop notifications, tap-to-open.
+  and if a day ends unwritten, it backfills the diary with a terse factual digest — no holes.
 - **crash-safe storage** — atomic writes, cross-process lock, corrupt-file-safe.
 
 ## quick start
@@ -35,10 +42,11 @@ no build step, no `npm`, no dependencies for the app itself.
 
 five sections (number keys switch them):
 
-1. **today** — your daily glance. up top, **needs attention** (overdue + stale todos and how long
-   it's been since your last win) and a **this week** recap (completion rate, wins, busiest day);
-   then appointments today, todos due/overdue, today's wins with a one-field win logger, the next 7
-   days, and a streak ribbon. open this first each day.
+1. **today** — your daily glance. the **coach line** (if set) sits at the very top — one next move,
+   stamped with its age. then **needs attention** (overdue + stale todos and how long it's been since
+   your last win) and a **this week** recap (completion rate, wins, busiest day); then appointments
+   today, todos due/overdue, today's wins with a one-field win logger, the next 7 days, and a streak
+   ribbon. open this first each day.
 2. **calendar** — month grid; click a day to see what's on it and add an appointment with the **full
    controls right there** (time, place, repeat, end-date) — no jumping to another page. colored
    marks: green = a win, blue = an appointment, yellow = a due todo, violet = a diary entry.
@@ -46,11 +54,10 @@ five sections (number keys switch them):
    / weekly / every-other-week / monthly, with an optional end date) to make it recur. the list is
    grouped **upcoming** (soonest first, recurring series resolved to their next occurrence) and
    **past** — the calendar marks every occurrence and your phone gets it as a standard repeating event.
-4. **achievements** — your wins log, with a contribution heatmap + an honest, arcade-style streak.
-   each logged day extends it and every 7th banks a **shield** (max 3); a missed day spends a shield
-   to keep the run alive, but miss with no shields left and the streak resets to 0 — the shields are
-   shown so the grace is never hidden. log small wins often; watching the streak grow is the point.
-5. **todos** — things to do; give one a due date and it becomes a reminder on the calendar + phone.
+   a spammy series (say, a daily alarm synced in from the phone) can be **muted** (`m`): it disappears
+   from the calendar, today, reminders and the `.ics` feed without being deleted — `M` shows the
+   hidden pile, and a caldav server copy is never touched.
+4. **todos** — things to do; give one a due date and it becomes a reminder on the calendar + phone.
    each todo carries a **colour by deadline pressure**: red = due today / overdue, yellow = due soon
    (within ~3 days), calm green = plenty of time or no date — so the most urgent thing is obvious at a
    glance, and the top of the list is literally what to do next. **today** shows only what's actionable
@@ -58,12 +65,15 @@ five sections (number keys switch them):
    urgency-sorted. set **repeat** to make a todo a daily/weekly **routine** (eat lunch, workout, meds) — it
    shows up every day in "todos due", ticked off per-day so it's back tomorrow; routines never count as
    "overdue" (a missed day is just a day).
-6. **journal** — a private diary. write what happened in a free-text entry stamped to the moment;
-   log as many as you like a day and they stack under each date, newest day first. set a date to
-   **backdate a memory** (something from last week, or years ago). there's no title — a brain-dump is
-   just what happened. entries never go on the calendar feed or your phone; they're yours to look back
-   on. a **nightly nudge** ("what happened today?") reminds you to write, and stays quiet on days you
-   already have.
+5. **journal** — the life-log: **diary entries and wins on one timeline**, newest day first. write
+   what happened in a free-text entry stamped to the moment (log as many as you like a day), or flip
+   the **★ win** toggle to log it as a win; filter the stream to **all** or **wins only**, and search
+   it. set a date to **backdate a memory** (something from last week, or years ago). up top, a
+   **contribution heatmap** + an honest, arcade-style streak: each day with a win extends it and every
+   7th banks a **shield** (max 3); a missed day spends a shield to keep the run alive, but miss with
+   no shields left and the streak resets to 0 — the shields are shown so the grace is never hidden.
+   entries never go on the calendar feed or your phone; they're yours to look back on. a **nightly
+   nudge** ("what happened today?") reminds you to write, and stays quiet on days you already have.
 
 every item can be edited in place (`e` or double-click) or deleted (`×` / `d d`, undo with `u`).
 nothing needs saving — it's written to disk the moment you add it.
@@ -72,12 +82,13 @@ nothing needs saving — it's written to disk the moment you add it.
 
 | keys | action | | keys | action |
 |---|---|---|---|---|
-| `1` … `6` | switch section | | `h` `j` `k` `l` | calendar: move day in grid |
+| `1` … `5` | switch section | | `h` `j` `k` `l` | calendar: move day in grid |
 | `n` | new item | | `H` / `L` | calendar: jump month |
-| `j` / `k` | move selection (lists) | | `e` / dbl-click | edit selected |
-| `x` | toggle todo done | | `enter` | save edit / open day |
-| `X` | todos: show / hide done | | `d` `d` | delete selected |
-| `/` | filter the current list | | `u` | undo last delete |
+| `c` | talk to the coach | | `e` / dbl-click | edit selected |
+| `j` / `k` | move selection (lists) | | `enter` | save edit / open day |
+| `x` | toggle todo done | | `d` `d` | delete selected |
+| `X` | todos: show / hide done | | `u` | undo last delete |
+| `m` / `M` | mute appointment · hidden pile | | `/` | filter the current list |
 | `t` · `r` · `?` | theme · refresh · help | | `esc` | cancel / close |
 
 theme and accent are saved with your data.
@@ -88,18 +99,39 @@ theme and accent are saved with your data.
 ./install.sh           # linux/mac — or install.bat on windows
 ```
 
-it creates `.venv`, installs the mcp sdk, and prints a ready `claude mcp add …` line (the windows
-script prints the `\.venv\Scripts\python.exe` path). run it, restart claude, and check `/mcp`. the assistant
+it creates `.venv`, installs the optional deps from `requirements.txt` (the mcp sdk + caldav
+extras), and prints a ready `claude mcp add …` line (the windows script prints the
+`\.venv\Scripts\python.exe` path). run it, restart claude, and check `/mcp`. the assistant
 then has these tools, all writing to the same local files the web app reads:
 
-partner: `whats_slipping` (what needs attention now) · `review_period` (how the last N days went)
+partner: `whats_slipping` (what needs attention now) · `review_period` (how the last N days went) ·
+`get_stats`
 read: `get_overview` · `get_day` · `get_week` · `get_range` · `list_achievements` ·
 `list_todos` · `list_appointments` · `list_journal`
 write: `add_achievement` · `add_todo` · `complete_todo` · `add_appointment` · `add_journal` ·
 `update_achievement` · `update_todo` · `update_appointment` · `update_journal` · `delete_item`
 
-writes from the assistant appear in your open ui within a few seconds; your edits are visible to it
-immediately. (works with any mcp client — claude desktop, claude code, etc.)
+(wins are stored as the `achievements` entity — same thing, older name.) writes from the assistant
+appear in your open ui within a few seconds; your edits are visible to it immediately. (works with
+any mcp client — claude desktop, claude code, etc.)
+
+## the coach (optional)
+
+two pieces, both optional, both riding the same local files:
+
+- **the directive** — one next-move line at the top of today, shown with its age so stale advice
+  looks stale. anything can write it — a script on a timer, typically an llm that read
+  `whats_slipping` first: `python3 -c "import store; store.set_coach('close out the passport — it
+  blocks the flights')"`. writing the same line twice is a no-op, so a timer never causes churn.
+- **the chat** — the "ask the coach" box on today (`c` focuses it). your message runs the
+  [claude cli](https://claude.com/claude-code) headless with **only lifeplanner's
+  mcp tools** — no shell, no file access, and no `delete_item` — so "push the dentist to thursday
+  and log the win" actually edits your planner, and the worst it can ever do is add or reschedule.
+  needs the mcp install (above) plus the `claude` cli on the machine running the app. tune with
+  `LIFEPLANNER_COACH_TIMEOUT` / `LIFEPLANNER_CLAUDE_BIN`.
+
+with no directive set the line simply isn't there; with no `claude` cli a chat just answers
+"coach unavailable" — nothing else in the app depends on either.
 
 ## run it as a service (optional)
 
@@ -166,11 +198,12 @@ exposure, survives reboots.
 
 want appointments you create on your phone to show up here too (and vice versa)? back the
 **appointments** entity with a [caldav](https://en.wikipedia.org/wiki/CalDAV) server instead of local
-json. achievements, todos and wins stay local — only appointments sync.
+json. todos, wins and the journal stay local — only appointments sync.
 
 1. run a caldav server you control — [radicale](https://radicale.org) is tiny and foss. create a
    collection (calendar) and a user/password.
-2. `pip install icalendar defusedxml` (into the same venv as the app).
+2. `pip install icalendar defusedxml` (already there if you ran `./install.sh` — they're in
+   `requirements.txt`).
 3. copy `.caldav.json.example` to `.caldav.json` and fill in your server url, user, password. it's
    gitignored — your credentials never get committed.
 4. restart the app. appointments now live on your server; on your phone, point a caldav client
@@ -227,6 +260,13 @@ with `LIFEPLANNER_STANDUP_HOUR` (default 8), `LIFEPLANNER_REVIEW_DOW` (mon=0, de
 `LIFEPLANNER_REVIEW_HOUR` (default 18), `LIFEPLANNER_JOURNAL_HOUR` (default 21, the nightly diary
 prompt — skipped on days you've already written); set `LIFEPLANNER_NUDGE=off` to silence it.
 
+it also keeps the diary gapless: if a day ends with nothing written, after
+`LIFEPLANNER_AUTOJOURNAL_HOUR` (default 23) it backfills a terse **factual digest entry** — prefixed
+"auto log" so it's never mistaken for your own words — from what actually happened (appointments
+kept, todos done, routines hit, wins logged). a genuinely empty day gets nothing (no fabricated
+entries), and deleting an auto entry stays deleted. set `LIFEPLANNER_AUTOJOURNAL=off` to keep the
+diary purely handwritten.
+
 set `LIFEPLANNER_URL` (your app's address) and **tapping a notification opens lifeplanner**. ntfy
 isn't just phones — subscribe to the same server + topic from the [ntfy web app or desktop client](https://docs.ntfy.sh/subscribe/phone/)
 and the nudges arrive as **desktop notifications** too (handy if you live at a computer). a minimal
@@ -249,8 +289,13 @@ all optional, via environment variables:
 | `LIFEPLANNER_STANDUP_HOUR` | `8` | hour the daily standup nudge may fire |
 | `LIFEPLANNER_REVIEW_DOW` · `_HOUR` | `6` · `18` | weekly review day (mon=0) + hour |
 | `LIFEPLANNER_JOURNAL_HOUR` | `21` | hour the nightly "write your diary" prompt may fire |
+| `LIFEPLANNER_AUTOJOURNAL` · `_HOUR` | on · `23` | auto-diary digest for unwritten days: `off` to disable, hour after which it writes |
 | `LIFEPLANNER_NUDGE` | unset | set to `off` to disable nudges entirely |
+| `LIFEPLANNER_NTFY_ALARM_TOPIC` | unset | separate ntfy topic for appointment reminders (defaults to the main topic) |
+| `LIFEPLANNER_COACH_TIMEOUT` | `150` | max seconds a coach chat turn may run |
+| `LIFEPLANNER_CLAUDE_BIN` | `claude` | path to the claude cli the coach chat runs |
 | `LIFEPLANNER_CALDAV` | unset | set to `off` to force local-only appointments (ignore `.caldav.json`) |
+| `LIFEPLANNER_BACKUP_HOST` · `_DIR` · `_KEEP` | unset | `backup.sh` target ssh host · remote dir (`backups/lifeplanner`) · tarballs kept (`14`) |
 
 ## layout
 
@@ -258,13 +303,16 @@ all optional, via environment variables:
 app.pyw          web server + rest api (stdlib only)
 store.py         shared data layer — atomic writes, file lock, .ics generation
 mcp_server.py    mcp server (assistant's door; needs the mcp sdk)
+coach_chat.py    coach chat backend — runs the claude cli with planner-only tools
 caldav_store.py  optional caldav backend for two-way phone sync (needs icalendar/defusedxml)
 reminders.py     optional ntfy push reminders (run on a timer)
-nudge.py         optional daily standup + weekly review pushes (the forcing function)
+nudge.py         optional standup / review / journal pushes + the auto-diary digest
 notify.py        shared ntfy push helper (reminders + nudge publish through it)
 review.py        planning-partner derivations (what's slipping / how a period went)
+backup.sh        optional daily off-machine backup of data/ over ssh (run on a timer)
 web/             ui — vanilla html / css / js
 tests/           test suite (python3 -m unittest discover -s tests)
+requirements.txt optional deps only — the app itself needs none
 launch.sh        linux/mac launcher        launch.bat   windows launcher
 install.sh       optional mcp setup        install.bat  windows mcp setup
 data/            your data (created on first run, gitignored — never committed)
@@ -273,10 +321,12 @@ data/            your data (created on first run, gitignored — never committed
 ## data + safety
 
 plain json in `data/`. back it up with the **⤓ export** button (downloads the whole vault as a
-dated zip) or just copy the folder; restore by unzipping back into `data/`. files fail safe to empty
-rather than crashing, writes are atomic (temp + rename), and the ui and assistant are serialized by a
-lockfile so concurrent writes can't corrupt anything. your data dir is gitignored — it will never
-end up in a commit.
+dated zip), just copy the folder, or put `backup.sh` on a daily timer — set
+`LIFEPLANNER_BACKUP_HOST` to an ssh host and it tarballs `data/` there daily, keeping the last 14
+(`_DIR` / `_KEEP` to tune). restore by unzipping (or untarring) back into
+`data/`. files fail safe to empty rather than crashing, writes are atomic (temp + rename), and the
+ui and assistant are serialized by a lockfile so concurrent writes can't corrupt anything. your data
+dir is gitignored — it will never end up in a commit.
 
 ## tests
 
