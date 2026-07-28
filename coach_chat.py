@@ -115,7 +115,7 @@ def _transcript(history, message):
         if not isinstance(turn, dict):
             continue
         role = "mellen" if turn.get("role") == "you" else "coach"
-        text = str(turn.get("text") or "").strip()
+        text = str(turn.get("text") or "").strip()[:MAX_MSG]  # cap so a long turn can't bloat the prompt
         if text:
             lines.append(f"{role}: {text}")
     lines.append(f"mellen: {message}")

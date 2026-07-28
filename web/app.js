@@ -1018,7 +1018,9 @@ async function coachSend(text) {
   render();
   let reply;
   try {
-    const history = coachChat.slice(-12);
+    // history excludes the turn we just pushed — the server appends `message`
+    // itself, so sending it here too would double the line in the prompt.
+    const history = coachChat.slice(0, -1).slice(-12);
     const r = await api("POST", "/api/coach/chat", { message: text, history });
     reply = r.error ? `(${r.error})` : (r.reply || "(no reply)");
   } catch (e) {
@@ -1659,6 +1661,16 @@ function focusAdd() {
   }
 }
 
+// jump to the coach chat from anywhere — keyboard-first path to the one input
+// that can act on the whole planner.
+function focusCoach() {
+  if (view !== "today") setView("today");
+  setTimeout(() => {
+    const i = document.getElementById("coach-input");
+    if (i) { i.focus(); i.classList.add("flash"); setTimeout(() => i.classList.remove("flash"), 400); }
+  }, 50);
+}
+
 function moveSel(d) {
   const list = currentList();
   if (!list.length) return;
@@ -1720,6 +1732,7 @@ document.addEventListener("keydown", (e) => {
     case "4": setView("todos"); break;
     case "5": setView("journal"); break;
     case "n": e.preventDefault(); focusAdd(); break;
+    case "c": e.preventDefault(); focusCoach(); break;
     case "/": e.preventDefault(); openSearch(); break;
     case "u": undoDelete(); break;
     case "e": e.preventDefault(); editSel(); break;

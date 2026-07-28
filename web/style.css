@@ -291,7 +291,7 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .coach-ask { display: flex; gap: 6px; margin-top: 9px; }
 .coach-ask input { flex: 1 1 auto; font: inherit; background: var(--field); color: var(--fg);
   border: 1px solid var(--line); padding: 6px 8px; border-radius: 0; }
-.coach-ask input:focus { outline: 2px solid var(--accent); }
+.coach-ask input:focus, .coach-ask input.flash { outline: 2px solid var(--accent); }
 .coach-ask input:disabled { opacity: .5; }
 .coach-ask button { font: inherit; background: var(--bg); color: var(--fg);
   border: 1px solid var(--fg); padding: 6px 14px; cursor: pointer; }
