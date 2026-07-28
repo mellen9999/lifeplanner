@@ -127,8 +127,9 @@ def stats(start, end):
                      and si <= (t.get("done_at") or "") <= ei)
     routine_done = sum(1 for t in todos if t.get("recur")
                        for x in (t.get("done_dates") or []) if si <= x <= ei)
+    # hidden (muted) series would swamp the count — a daily alarm is 365/yr of noise
     appts = sum(len(store.occurrences_in(a, si, ei))
-                for a in store.list_items("appointments"))
+                for a in store.list_items("appointments") if not a.get("hidden"))
     return {
         "from": si, "to": ei,
         "wins": len(wins),

@@ -88,7 +88,7 @@ def get_overview() -> dict:
     today = date.today().isoformat()
     horizon = (date.today() + timedelta(days=14)).isoformat()
     todos = store.list_items("todos")
-    appts = store.list_items("appointments")
+    appts = [a for a in store.list_items("appointments") if not a.get("hidden")]
     achs = store.list_items("achievements")
     return {
         "today": store.day(today),
@@ -127,11 +127,15 @@ def list_todos(include_done: bool = False) -> list:
 
 
 @mcp.tool()
-def list_appointments(upcoming_only: bool = True) -> list:
+def list_appointments(upcoming_only: bool = True, include_hidden: bool = False) -> list:
     """appointments, soonest first. upcoming_only resolves each to its next
-    occurrence (recurring ones included) and hides fully-past ones."""
+    occurrence (recurring ones included) and hides fully-past ones. hidden
+    (muted) appointments — e.g. a daily phone-alarm series — are excluded unless
+    include_hidden=true."""
     today = date.today().isoformat()
     appts = store.list_items("appointments")
+    if not include_hidden:
+        appts = [a for a in appts if not a.get("hidden")]
     if upcoming_only:
         return _upcoming(appts, today)
     return sorted(appts, key=lambda a: a.get("when", ""))
@@ -191,14 +195,20 @@ def add_appointment(title: str, when: str, end: str = "", location: str = "", no
 @mcp.tool()
 def update_appointment(item_id: str, title: str = "", when: str = "", end: str = "",
                        location: str = "", note: str = "",
-                       recur: str = "", interval: int = 1, until: str = "") -> dict:
+                       recur: str = "", interval: int = 1, until: str = "",
+                       hidden: str = "") -> dict:
     """edit/reschedule an appointment by id. only non-empty fields are changed.
     when = 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM'. end = finish time (same format) to
     make it a block; pass 'none' to clear the end. pass 'none' to clear location,
     note, or recur (recur='daily'|'weekly'|'monthly' + interval makes it repeat).
     until = 'YYYY-MM-DD' caps the repeat; 'none' clears the cap. changing recur
-    without passing until keeps the existing end-date (never silently wipes it)."""
+    without passing until keeps the existing end-date (never silently wipes it).
+    hidden = 'true' mutes it — dropped from calendar/today/reminders so a spammy
+    recurring series (like a synced daily alarm) stops flooding every view, while
+    staying listed on the appointments page; hidden = 'false' unmutes."""
     patch = {}
+    if hidden:
+        patch["hidden"] = hidden.strip().lower() in ("true", "yes", "1", "on")
     if title:
         patch["title"] = title
     if when:

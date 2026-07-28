@@ -82,6 +82,8 @@ def main():
     start, end = now.date().isoformat(), (now + timedelta(days=HORIZON_DAYS)).date().isoformat()
     ok = True
     for ap in store.list_items("appointments"):
+        if ap.get("hidden"):
+            continue  # muted series (e.g. a daily phone alarm) — never push for it
         title = ap.get("title", "appointment")
         for occ in store.occurrences_in(ap, start, end):
             for fire_dt, label, when_text in _fires_for(occ):

@@ -331,5 +331,65 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(len(store.list_items("todos")), 30)
 
 
+class HiddenApptTest(unittest.TestCase):
+    """the mute overlay: hidden appointments vanish from day views / the .ics feed
+    but stay listed (flagged) and are never written into the stored items."""
+
+    def setUp(self):
+        for name in store.ENTITIES + ("settings", "hidden_appts"):
+            p = store._path(name)
+            if p.exists():
+                p.unlink()
+        if store.LOCK.exists():
+            store.LOCK.unlink()
+
+    def _add(self, **kw):
+        return store.add_item("appointments", {"title": "alarm", "when": "2026-06-01",
+                                               "recur": {"freq": "daily"}, **kw})
+
+    def test_toggle_via_patch(self):
+        a = self._add()
+        self.assertFalse(store.list_items("appointments")[0]["hidden"])
+        got = store.update_item("appointments", a["id"], {"hidden": True})
+        self.assertTrue(got["hidden"])
+        self.assertTrue(store.list_items("appointments")[0]["hidden"])
+        got = store.update_item("appointments", a["id"], {"hidden": False})
+        self.assertFalse(got["hidden"])
+
+    def test_hidden_patch_on_missing_id_is_not_recorded(self):
+        self.assertIsNone(store.update_item("appointments", "nope", {"hidden": True}))
+        self.assertEqual(store._hidden_ids(), set())
+
+    def test_mixed_patch_applies_both(self):
+        a = self._add()
+        got = store.update_item("appointments", a["id"], {"hidden": True, "title": "wake"})
+        self.assertEqual(got["title"], "wake")
+        self.assertTrue(store.list_items("appointments")[0]["hidden"])
+
+    def test_hidden_left_out_of_days_and_ics(self):
+        a = self._add()
+        store.update_item("appointments", a["id"], {"hidden": True})
+        d = store.day("2026-06-03")
+        self.assertEqual(d["appointments"], [])
+        self.assertNotIn("alarm", store.build_ics())
+        # unhide → back everywhere
+        store.update_item("appointments", a["id"], {"hidden": False})
+        self.assertEqual(len(store.day("2026-06-03")["appointments"]), 1)
+        self.assertIn("alarm", store.build_ics())
+
+    def test_flag_never_persisted_into_store_file(self):
+        a = self._add()
+        store.update_item("appointments", a["id"], {"hidden": True})
+        store.update_item("appointments", a["id"], {"title": "wake"})  # forces a write
+        raw = store._read_raw("appointments", [])
+        self.assertNotIn("hidden", raw[0])
+
+    def test_delete_prunes_overlay(self):
+        a = self._add()
+        store.update_item("appointments", a["id"], {"hidden": True})
+        self.assertTrue(store.delete_item("appointments", a["id"]))
+        self.assertEqual(store._hidden_ids(), set())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

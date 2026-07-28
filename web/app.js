@@ -34,6 +34,8 @@ let armedDelete = null;       // id of the row whose × is armed; needs a 2nd cl
 let armedTimer = null;        // auto-disarm so a stale armed × can't linger
 let showDone = false;         // todos: reveal the collapsed "done" pile
 try { showDone = localStorage.getItem("lp-show-done") === "1"; } catch {}
+let showHidden = false;       // appointments: reveal the collapsed "hidden" pile
+try { showHidden = localStorage.getItem("lp-show-hidden") === "1"; } catch {}
 let lastDeleted = null;       // {entity, item} for single-level undo
 let search = "";              // active filter query ("" = off)
 let searchOpen = false;       // filter bar visible
@@ -395,9 +397,26 @@ function setView(v) {
 
 function currentList() {
   if (view === "todos") return orderedTodos();
-  if (view === "appointments") { const o = orderedAppointments(applySearch(state.appointments)); return [...o.up, ...o.past]; }
+  if (view === "appointments") { const g = apptGroups(); return [...g.up, ...g.past, ...g.hid]; }
   if (view === "journal") return orderedLog();
   return [];
+}
+
+// hidden (muted) appointments — e.g. a daily alarm series synced from the phone —
+// stay off the calendar/today views entirely; every consumer of the schedule
+// filters through here so the spam can't leak back in via one forgotten path.
+function visibleAppts() { return state.appointments.filter(a => !a.hidden); }
+
+// the appointments page's three groups, ONE definition shared by the renderer and
+// currentList so keyboard nav always lands on the row you see. hidden rows join
+// the nav list only while revealed (or while a search is on — a search should
+// always be able to find a muted appointment).
+function apptGroups() {
+  const all = applySearch(state.appointments);
+  const { up, past } = orderedAppointments(all.filter(a => !a.hidden));
+  const h = orderedAppointments(all.filter(a => a.hidden));
+  const hidAll = [...h.up, ...h.past];
+  return { up, past, hid: (showHidden || search) ? hidAll : [], hiddenCount: hidAll.length };
 }
 
 // the unified life-log: diary entries + wins in one stream, each tagged with the
@@ -879,7 +898,7 @@ function renderToday() {
 
   // appointments today (expand recurring series to today's occurrence)
   const appts = [];
-  state.appointments.forEach(a =>
+  visibleAppts().forEach(a =>
     apptOccurrences(a, t, t).forEach(w => appts.push({ ...a, when: w })));
   appts.sort((a, b) => (a.when > b.when ? 1 : -1));
   grid.appendChild(agendaCard("appointments today", appts.length
@@ -917,7 +936,7 @@ function renderToday() {
 
   // next 7 days peek (occurrences after today, recurring series included)
   const soon = [];
-  state.appointments.forEach(a =>
+  visibleAppts().forEach(a =>
     apptOccurrences(a, addDays(t, 1), addDays(t, 7)).forEach(w => soon.push({ when: w, title: a.title })));
   soon.sort((a, b) => (a.when > b.when ? 1 : -1));
   grid.appendChild(agendaCard("next 7 days", soon.length
@@ -1137,10 +1156,42 @@ function apptRow(a) {
   const rec = recurLabel(a.recur, (a.when || "").slice(0, 10));
   const shown = rec ? (nextOccurrence(a, todayIso()) || a.when) : a.when;
   const sub = [a.location, rec].filter(Boolean).join("  ·  ");
-  return listRow(a, "appointments", [
+  const row = listRow(a, "appointments", [
     el("span", "when", fmtWhenList(shown, a.end)),
     buildBody(a.title, sub),
   ]);
+  if (a.id !== editing) {
+    if (a.hidden) row.classList.add("hid");
+    // mute toggle: hide drops the series from calendar/today/reminders; the row
+    // stays here (dimmed, under "hidden") so nothing is ever lost, just quieted.
+    const mute = el("span", "rowedit", a.hidden ? "show" : "hide");
+    mute.title = a.hidden ? "unhide — back on the calendar (m)"
+      : "hide from calendar & reminders — stays in this list (m)";
+    mute.setAttribute("role", "button");
+    mute.tabIndex = 0;
+    const doMute = (e) => { e.stopPropagation(); patch("appointments", a.id, { hidden: !a.hidden }); };
+    mute.onclick = doMute;
+    mute.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); doMute(e); } };
+    row.insertBefore(mute, row.querySelector(".rowedit"));
+  }
+  return row;
+}
+
+// discoverable handle for the `/` filter — sits in a list view's header.
+function searchChip() {
+  const s = el("span", "count toggle-done", "/ search");
+  s.title = "filter this list (/)";
+  s.setAttribute("role", "button");
+  s.tabIndex = 0;
+  s.onclick = openSearch;
+  s.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSearch(); } };
+  return s;
+}
+
+function toggleHiddenVisibility() {
+  showHidden = !showHidden; sel = -1;
+  try { localStorage.setItem("lp-show-hidden", showHidden ? "1" : "0"); } catch {}
+  render();
 }
 
 function renderAppointments() {
@@ -1148,18 +1199,19 @@ function renderAppointments() {
   clear(root);
   const h = el("h2", "section-h", "appointments");
   h.appendChild(el("span", "count", `${state.appointments.length}`));
+  h.appendChild(searchChip());
   root.appendChild(h);
   root.appendChild(appointmentAddForm(selDay));
 
-  const { up, past } = orderedAppointments(applySearch(state.appointments));
+  const { up, past, hid, hiddenCount } = apptGroups();
   const body = el("div");
-  if (!up.length && !past.length) {
+  if (!up.length && !past.length && !hiddenCount) {
     body.appendChild(el("div", "empty", "no appointments. press n to add one."));
     root.appendChild(body);
     return;
   }
   // one flat list with group headers; the running index mirrors currentList()
-  // ([...up, ...past]) so the selection model and keyboard nav stay in sync.
+  // ([...up, ...past, ...hid]) so the selection model and keyboard nav stay in sync.
   const list = el("div", "list");
   let i = 0;
   const group = (items, label) => {
@@ -1175,6 +1227,26 @@ function renderAppointments() {
   };
   group(up, "upcoming");
   group(past, "past");
+  if (hiddenCount) {
+    // the muted pile — collapsed by default like done todos; a live search always
+    // reveals its matches (hid is already populated then).
+    const open = hid.length > 0;
+    const gh = el("div", "grp-h toggle-done", `hidden (${hiddenCount}) ${open ? "▾" : "▸"}`);
+    gh.setAttribute("role", "button");
+    gh.setAttribute("aria-expanded", open ? "true" : "false");
+    gh.tabIndex = 0;
+    gh.title = open ? "collapse hidden appointments" : "show hidden appointments";
+    gh.onclick = toggleHiddenVisibility;
+    gh.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleHiddenVisibility(); } };
+    list.appendChild(gh);
+    hid.forEach(a => {
+      const idx = i++;
+      const row = apptRow(a);
+      if (idx === sel && a.id !== editing) row.classList.add("sel");
+      if (a.id !== editing) row.onclick = () => { sel = idx; render(); };
+      list.appendChild(row);
+    });
+  }
   body.appendChild(list);
   root.appendChild(body);
 }
@@ -1197,6 +1269,7 @@ function renderTodos() {
     toggle.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleDoneVisibility(); } };
     h.appendChild(toggle);
   }
+  h.appendChild(searchChip());
   root.appendChild(h);
   root.appendChild(addRow([
     { name: "title", ph: "to do", cls: "title" },
@@ -1239,6 +1312,7 @@ function renderJournal() {
   h.appendChild(el("span", "count",
     `${nj} entr${nj === 1 ? "y" : "ies"} · ${nw} win${nw === 1 ? "" : "s"}`));
   h.appendChild(logFilterChip());
+  h.appendChild(searchChip());
   root.appendChild(h);
   // wins analytics — the streak HUD + year heatmap track the ★ subset of the log.
   root.appendChild(streakRibbon());
@@ -1426,7 +1500,7 @@ function renderDayPanel() {
   const dp = new Date(selDay + "T00:00");
   panel.appendChild(el("h3", null, `${MONTHS[dp.getMonth()]} ${dp.getDate()}`));
   const items = [];
-  state.appointments.forEach(a => apptOccurrences(a, selDay, selDay)
+  visibleAppts().forEach(a => apptOccurrences(a, selDay, selDay)
     .forEach(w => items.push(["appt", `${timeOf(w) ? fmtTimeRange(w, a.end) + " " : ""}${a.title}`.trim()])));
   state.todos.forEach(t => { if (todoOccursOn(t, selDay))
     items.push(["todo", (todoDoneOn(t, selDay) ? "✓ " : "") + t.title]); });
@@ -1463,7 +1537,7 @@ function itemsByDay() {
   const get = ds => (m[ds] = m[ds] || { appts: [], todos: [], wins: [], jrnl: [] });
   const from = addDays(iso(startOfMonth(calCursor)), -7);
   const to = addDays(iso(new Date(calCursor.getFullYear(), calCursor.getMonth() + 1, 0)), 7);
-  state.appointments.forEach(a => apptOccurrences(a, from, to).forEach(w =>
+  visibleAppts().forEach(a => apptOccurrences(a, from, to).forEach(w =>
     get(w.slice(0, 10)).appts.push({ when: w, time: fmtTimeRange(w, a.end), title: a.title })));
   state.todos.forEach(t => {
     if (t.recur) apptOccurrences({ when: t.due, recur: t.recur }, from, to)
@@ -1579,6 +1653,8 @@ document.addEventListener("keydown", (e) => {
     case "L": if (view === "calendar") shiftMonth(1); break;    // jump a whole month forward
     case "x": toggleSelTodo(); break;
     case "X": if (view === "todos") toggleDoneVisibility(); break;
+    case "m": toggleSelHidden(); break;
+    case "M": if (view === "appointments") toggleHiddenVisibility(); break;
     case "d": {
       const armed = document.querySelector(`#${view} .row.sel`);
       if (pendingDelete) { deleteSel(); pendingDelete = false; }
@@ -1611,6 +1687,16 @@ function toggleDoneVisibility() {
   showDone = !showDone; sel = -1;
   try { localStorage.setItem("lp-show-done", showDone ? "1" : "0"); } catch {}
   render();
+}
+
+// mute/unmute the selected appointment — hides its series from calendar/today/
+// reminders without deleting anything (the row moves to the "hidden" group).
+function toggleSelHidden() {
+  if (view !== "appointments") return;
+  const row = document.querySelector("#appointments .row.sel");
+  if (!row) return;
+  const a = state.appointments.find(x => x.id === row.dataset.id);
+  if (a) patch("appointments", a.id, { hidden: !a.hidden });
 }
 
 function toggleSelTodo() {

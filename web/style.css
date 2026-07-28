@@ -259,6 +259,10 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
   color: var(--muted); margin: 14px 0 5px; padding-bottom: 3px;
   border-bottom: 1px solid var(--line); }
 .grp-h:first-child { margin-top: 2px; }
+/* hidden (muted) appointments — dimmed rows under their collapsible group */
+.grp-h.toggle-done { cursor: pointer; }
+.row.hid { opacity: .55; }
+.row.hid:hover, .row.hid.sel { opacity: 1; }
 
 /* ---- help overlay ---- */
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.7);

@@ -161,6 +161,11 @@ def _read_raw(name, fallback):
 
 def _write_raw(name, value):
     _ensure()
+    if name == "appointments" and isinstance(value, list):
+        # `hidden` is a read-time annotation from the overlay file — never persist
+        # it into the source-of-truth list, or the two could silently drift.
+        value = [{k: v for k, v in it.items() if k != "hidden"}
+                 if isinstance(it, dict) else it for it in value]
     p = _path(name)
     tmp = p.with_suffix(".tmp")
     tmp.write_text(json.dumps(value, indent=2, ensure_ascii=False), "utf-8")
@@ -169,6 +174,30 @@ def _write_raw(name, value):
     except OSError:
         pass
     os.replace(tmp, p)  # atomic on the same filesystem
+
+
+# ---- hidden (muted) appointments --------------------------------------------
+# a recurring series synced in from the phone (e.g. a daily alarm) can spam every
+# calendar day. "hidden" mutes it: dropped from the calendar/today/ics/reminder
+# surfaces, still listed (dimmed) on the appointments page. the flag lives in a
+# local overlay file keyed by appointment id — the caldav server and the phone's
+# own events are never touched, so muting can't corrupt or lose an event.
+
+def _hidden_ids():
+    try:
+        ids = _read_raw("hidden_appts", [])
+    except OSError:
+        return set()  # overlay is best-effort; a read fault just means "none hidden"
+    return {x for x in ids if isinstance(x, str)} if isinstance(ids, list) else set()
+
+
+def set_hidden(item_id, hidden):
+    """add/remove one appointment id in the hidden overlay + refresh the .ics feed."""
+    with FileLock():
+        ids = _hidden_ids()
+        ids.add(item_id) if hidden else ids.discard(item_id)
+        _write_raw("hidden_appts", sorted(ids))
+        _regen_ics_locked()
 
 
 # ---- entities ---------------------------------------------------------------
@@ -227,13 +256,19 @@ def list_items(name):
     if name not in ENTITIES:
         raise ValueError(f"unknown entity: {name}")
     if name == "appointments" and _CALDAV is not None:
-        return _caldav_list()
-    items = _read_raw(name, [])
-    if not isinstance(items, list):
-        return []
-    # drop any non-dict element so a poisoned/partially-written file can't crash
-    # every caller that does item.get(...) downstream (state, day, occurrences).
-    return [it for it in items if isinstance(it, dict)]
+        items = _caldav_list()
+    else:
+        items = _read_raw(name, [])
+        if not isinstance(items, list):
+            return []
+        # drop any non-dict element so a poisoned/partially-written file can't crash
+        # every caller that does item.get(...) downstream (state, day, occurrences).
+        items = [it for it in items if isinstance(it, dict)]
+    if name == "appointments":
+        hid = _hidden_ids()
+        for it in items:
+            it["hidden"] = it.get("id") in hid
+    return items
 
 
 def _coerce(name, key, value):
@@ -316,6 +351,18 @@ def add_item(name, item):
 
 
 def update_item(name, item_id, patch):
+    # `hidden` is overlay-only, never a stored/caldav field — peel it off here so
+    # muting works identically in both backends and can't be written to the server.
+    if name == "appointments" and "hidden" in patch:
+        patch = dict(patch)
+        hidden = bool(patch.pop("hidden"))
+        cur = next((a for a in list_items(name) if a.get("id") == item_id), None)
+        if cur is None:
+            return None
+        set_hidden(item_id, hidden)
+        if not patch:  # hidden was the whole edit — done
+            cur["hidden"] = hidden
+            return cur
     if name == "appointments" and _CALDAV is not None:
         return _caldav_update(item_id, patch)
     with FileLock():
@@ -426,6 +473,8 @@ def delete_item(name, item_id):
         except caldav_store.CalDAVError as e:
             raise SyncError(str(e)) from e
         _caldav_refresh()
+        if ok and item_id in _hidden_ids():
+            set_hidden(item_id, False)  # prune the overlay so it can't grow stale
         return ok
     with FileLock():
         items = list_items(name)
@@ -434,6 +483,8 @@ def delete_item(name, item_id):
             return False
         _write_raw(name, kept)
         _regen_ics_locked()
+    if name == "appointments" and item_id in _hidden_ids():
+        set_hidden(item_id, False)  # prune the overlay so it can't grow stale
     return True
 
 
@@ -635,9 +686,10 @@ def version():
     """cheap change token for the ui poller. nanosecond mtimes so two quick writes
     never collapse; in caldav mode it also folds in the server's collection tag so
     a change made on the phone flips the token and the desktop refreshes live."""
-    # derived from ENTITIES (+ settings) so a new entity's writes always flip the
-    # token; in caldav mode appointments live on the server, so watch the cache.
-    names = ["settings"]
+    # derived from ENTITIES (+ settings + the hidden overlay, so a mute/unmute
+    # refreshes every open ui) — a new entity's writes always flip the token; in
+    # caldav mode appointments live on the server, so watch the cache.
+    names = ["settings", "hidden_appts"]
     for e in ENTITIES:
         names.append("appointments.cache" if (e == "appointments" and _CALDAV is not None) else e)
     latest = 0
@@ -665,7 +717,10 @@ def days(start, end):
         return out.setdefault(
             d, {"date": d, "appointments": [], "todos": [], "achievements": [], "journal": []})
 
+    # hidden (muted) series are exactly the spam a day view exists to avoid
     for a in list_items("appointments"):
+        if a.get("hidden"):
+            continue
         for w in occurrences_in(a, s, e):
             slot(w[:10])["appointments"].append({**a, "when": w})
     # recurring todos (routines) expand to every occurrence in range, each tagged
@@ -779,6 +834,8 @@ def build_ics():
            "PRODID:-//lifeplanner//EN", "CALSCALE:GREGORIAN",
            "X-WR-CALNAME:lifeplanner"]
     for ap in list_items("appointments"):
+        if ap.get("hidden"):
+            continue  # muted — keep it out of every subscribed calendar too
         when = ap.get("when", "")
         all_day = len(when) <= 10
         try:
@@ -853,7 +910,7 @@ def export_bytes():
     restore by unzipping back into the data dir."""
     # derived from ENTITIES so a new entity can never be silently left out of a
     # backup. settings + the caldav cache round out the on-disk vault.
-    names = (*ENTITIES, "appointments.cache", "settings")
+    names = (*ENTITIES, "appointments.cache", "settings", "hidden_appts")
     # read raw bytes under the lock (a consistent snapshot), then compress
     # outside it — compression is CPU-bound and must not block concurrent writes.
     blobs = {}
