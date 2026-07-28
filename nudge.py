@@ -15,11 +15,16 @@ config via env (no ntfy server/topic → does nothing, so it's safe/optional):
   LIFEPLANNER_JOURNAL_HOUR   hour the nightly "write your diary" prompt may fire
                              (default 21); skipped on days you've already written one
   LIFEPLANNER_NUDGE          set to 0/off/false to disable entirely
+
+the auto-journal safety net needs no ntfy config (it writes, not pushes):
+  LIFEPLANNER_AUTOJOURNAL_HOUR  hour after which an unjournaled day gets a factual
+                                digest entry written for it (default 23)
+  LIFEPLANNER_AUTOJOURNAL       set to 0/off/false to disable the auto-writer
 """
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import notify
 import review
@@ -39,6 +44,7 @@ STANDUP_HOUR = _int_env("LIFEPLANNER_STANDUP_HOUR", 8, 0, 23)
 REVIEW_DOW = _int_env("LIFEPLANNER_REVIEW_DOW", 6, 0, 6)
 REVIEW_HOUR = _int_env("LIFEPLANNER_REVIEW_HOUR", 18, 0, 23)
 JOURNAL_HOUR = _int_env("LIFEPLANNER_JOURNAL_HOUR", 21, 0, 23)
+AUTOJOURNAL_HOUR = _int_env("LIFEPLANNER_AUTOJOURNAL_HOUR", 23, 0, 23)
 
 
 def _enabled():
@@ -131,15 +137,85 @@ def review_text(rv):
     return "\n".join(parts)
 
 
+# ---- auto-journal safety net ------------------------------------------------
+# the diary's "nothing gets missed" guarantee. a claude-written entry (the
+# lifeplanner-diary timer) covers most nights; this is the deterministic fallback:
+# any day that ends unjournaled gets a terse factual digest of what actually
+# happened, written into the journal itself. yesterday is always re-checked, so a
+# night the machine was down still gets backfilled the next run.
+
+def autojournal_text(day_iso):
+    """one diary entry's worth of facts for a day, or '' when nothing happened
+    (an empty day gets silence, never a fabricated entry)."""
+    d = store.day(day_iso)
+    todos = store.list_items("todos")
+    lines = []
+    appts = []
+    for a in d["appointments"]:
+        w = a.get("when", "")
+        appts.append(f'{a.get("title", "")} {w[11:16] if len(w) > 10 else ""}'.strip())
+    if appts:
+        lines.append("appts: " + ", ".join(appts))
+    done = [t.get("title", "") for t in todos
+            if not t.get("recur") and (t.get("done_at") or "") == day_iso]
+    if done:
+        lines.append("done: " + ", ".join(done))
+    hit = [t.get("title", "") for t in todos
+           if t.get("recur") and day_iso in (t.get("done_dates") or [])]
+    missed = [t.get("title", "") for t in todos
+              if t.get("recur") and store.todo_occurrences(t, day_iso, day_iso)
+              and day_iso not in (t.get("done_dates") or [])]
+    if hit or missed:
+        s = "routines: " + (", ".join(hit) or "none")
+        if missed:
+            s += " · missed: " + ", ".join(missed)
+        lines.append(s)
+    wins = [a.get("title", "") for a in d["achievements"]]
+    if wins:
+        lines.append("wins: " + ", ".join(wins))
+    return "auto log\n" + "\n".join(lines) if lines else ""
+
+
+def _autojournal_enabled():
+    return os.environ.get("LIFEPLANNER_AUTOJOURNAL", "").lower() not in ("0", "off", "false", "no")
+
+
+def autojournal(now, state):
+    """write the digest for any finished-but-unjournaled day. state remembers the
+    last day handled, so a digest the user deletes is never re-written. returns
+    True when state changed (caller persists)."""
+    if not _autojournal_enabled():
+        return False
+    targets = [(now.date() - timedelta(days=1)).isoformat()]
+    if now.hour >= AUTOJOURNAL_HOUR:
+        targets.append(now.date().isoformat())
+    handled = state.get("autojournal", "")
+    have = {j.get("when", "")[:10] for j in store.list_items("journal")}
+    changed = False
+    for day in targets:
+        if day <= handled:
+            continue
+        if day not in have:
+            text = autojournal_text(day)
+            if text:
+                # 23:59 pins it to the end of its day in the timeline
+                store.add_item("journal", {"body": text, "when": f"{day} 23:59"})
+        state["autojournal"], changed = day, True
+    return changed
+
+
 # ---- driver -----------------------------------------------------------------
 
 def main(now=None):
-    if not _enabled():
-        return
     now = now or datetime.now()
-    today = now.date().isoformat()
     state = _load_state()
-    changed = False
+    # the auto-journal writes locally — it must run even with no ntfy configured
+    changed = autojournal(now, state)
+    if not _enabled():
+        if changed:
+            _save_state(state)
+        return
+    today = now.date().isoformat()
 
     # daily standup: once per day, at/after the configured hour.
     if now.hour >= STANDUP_HOUR and state.get("standup") != today:
