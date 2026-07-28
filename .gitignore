@@ -22,6 +22,4 @@ __pycache__/
 # local caldav credentials — never commit
 .caldav.json
 
-# local operational backup script (host-specific)
-backup.sh
 .worktrees/
