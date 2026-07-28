@@ -281,6 +281,22 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .coach-line { font-size: 15px; line-height: 1.45; color: var(--fg); }
 .coach-caret { color: var(--accent); }
 .coach-meta { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-top: 7px; }
+/* agentic coach chat — square terminal bubbles; coach can act, so replies read
+   like a log of what changed */
+.coach-chat { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.cc-msg { font-size: 13px; line-height: 1.45; padding: 5px 9px; border: 1px solid var(--line); overflow-wrap: anywhere; }
+.cc-msg.you { border-left: 2px solid var(--muted); color: var(--muted); }
+.cc-msg.coach { border-left: 2px solid var(--accent); white-space: pre-wrap; }
+.cc-pending { color: var(--muted); }
+.coach-ask { display: flex; gap: 6px; margin-top: 9px; }
+.coach-ask input { flex: 1 1 auto; font: inherit; background: var(--field); color: var(--fg);
+  border: 1px solid var(--line); padding: 6px 8px; border-radius: 0; }
+.coach-ask input:focus { outline: 2px solid var(--accent); }
+.coach-ask input:disabled { opacity: .5; }
+.coach-ask button { font: inherit; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--fg); padding: 6px 14px; cursor: pointer; }
+.coach-ask button:hover:not(:disabled) { background: var(--inv-bg); color: var(--inv-fg); }
+.coach-ask button:disabled { opacity: .5; cursor: default; }
 
 /* ---- today / agenda ---- */
 .agenda { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-items: start; }

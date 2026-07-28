@@ -39,6 +39,8 @@ try { showHidden = localStorage.getItem("lp-show-hidden") === "1"; } catch {}
 let lastDeleted = null;       // {entity, item} for single-level undo
 let search = "";              // active filter query ("" = off)
 let searchOpen = false;       // filter bar visible
+let coachChat = [];           // agentic coach transcript (this session, in-memory)
+let coachBusy = false;        // a coach turn is in flight (locks the input)
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -964,19 +966,69 @@ function renderToday() {
   root.appendChild(streakRibbon());
 }
 
-// the coach directive box — one claude-written line pointing at the next optimal
-// move, with a muted "how fresh" stamp. returns null when nothing's written yet.
+// the coach box: the claude-written directive line (the "next optimal move")
+// plus an agentic chat — mellen talks to the coach, which can actually add,
+// reschedule, complete, or journal on his behalf via the lifeplanner tools.
 function renderCoach() {
   const c = state.coach || {};
   const line = (c.line || "").trim();
-  if (!line) return null;
   const box = el("div", "coach");
-  const l = el("div", "coach-line");
-  l.append(el("span", "coach-caret", "▸ "), document.createTextNode(line));
-  box.appendChild(l);
-  const ago = agoLabel(c.created);
-  box.appendChild(el("div", "coach-meta", ago ? `coach · ${ago}` : "coach"));
+  if (line) {
+    const l = el("div", "coach-line");
+    l.append(el("span", "coach-caret", "▸ "), document.createTextNode(line));
+    box.appendChild(l);
+    const ago = agoLabel(c.created);
+    box.appendChild(el("div", "coach-meta", ago ? `coach · ${ago}` : "coach"));
+  }
+
+  // transcript (this session), then the ask input. the coach can change data,
+  // so a reply is followed by a state refresh — the rest of the page updates too.
+  if (coachChat.length || coachBusy) {
+    const log = el("div", "coach-chat");
+    coachChat.forEach(m => {
+      const b = el("div", "cc-msg " + (m.role === "you" ? "you" : "coach"));
+      b.textContent = m.text;
+      log.appendChild(b);
+    });
+    if (coachBusy) log.appendChild(el("div", "cc-msg coach cc-pending", "thinking…"));
+    box.appendChild(log);
+  }
+
+  const form = el("form", "coach-ask");
+  const inp = el("input");
+  inp.placeholder = "ask the coach — or tell it to do something";
+  inp.autocomplete = "off"; inp.spellcheck = false; inp.id = "coach-input";
+  inp.disabled = coachBusy;
+  const btn = el("button", null, coachBusy ? "…" : "send");
+  btn.type = "submit"; btn.disabled = coachBusy;
+  form.append(inp, btn);
+  form.onsubmit = (e) => { e.preventDefault(); coachSend(inp.value); };
+  box.appendChild(form);
   return box;
+}
+
+// one agentic turn. the message + recent history go to the coach; while it works
+// the input locks and a "thinking…" line shows. its reply lands in the
+// transcript and the whole page refreshes (it may have changed todos/appts).
+async function coachSend(text) {
+  text = (text || "").trim();
+  if (coachBusy || !text) return;
+  coachChat.push({ role: "you", text });
+  coachBusy = true;
+  render();
+  let reply;
+  try {
+    const history = coachChat.slice(-12);
+    const r = await api("POST", "/api/coach/chat", { message: text, history });
+    reply = r.error ? `(${r.error})` : (r.reply || "(no reply)");
+  } catch (e) {
+    reply = `(error: ${e.message})`;
+  }
+  coachChat.push({ role: "coach", text: reply });
+  coachBusy = false;
+  await refresh();          // repaints today (incl. this transcript) with fresh state
+  const inp = document.getElementById("coach-input");
+  if (inp) inp.focus();
 }
 
 function agendaCard(title, children) {

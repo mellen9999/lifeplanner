@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlparse
 
 import store
 import review
+import coach_chat
 
 # all configurable for portability; safe localhost defaults.
 HOST = os.environ.get("LIFEPLANNER_HOST", "127.0.0.1")
@@ -169,6 +170,15 @@ class Handler(BaseHTTPRequestHandler):
             if data is None:
                 return self._json(400, {"error": "bad json"})
             return self._json(200, {"ok": store.reorder_todos(data.get("ids", []))})
+        if path == "/api/coach/chat":
+            data = self._body()
+            if data is None:
+                return self._json(400, {"error": "bad json"})
+            # agentic: claude may take up to TIMEOUT to act via the lifeplanner
+            # tools. the server is threaded, so this long call never blocks the
+            # poller or other requests.
+            return self._json(200, coach_chat.respond(
+                data.get("message", ""), data.get("history", [])))
         entity = self._entity(path, exact=True)
         if entity is None:
             return self._json(404, {"error": "not found"})
