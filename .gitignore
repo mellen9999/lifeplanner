@@ -24,3 +24,4 @@ __pycache__/
 
 # local operational backup script (host-specific)
 backup.sh
+.worktrees/
