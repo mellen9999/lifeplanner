@@ -11,10 +11,12 @@
 
 /* dark = pure black surfaces (no #0a–#44 smudge), visible mid-gray lines */
 html[data-theme="dark"] {
+  color-scheme: dark; /* native controls dark + exempts page from chromium auto-dark */
   --bg: #000; --fg: #e4e4e4; --muted: #a0a0a0; --line: #5a5a5a;
   --row: #000; --inv-bg: #fff; --inv-fg: #000; --field: #000;
 }
 html[data-theme="light"] {
+  color-scheme: light;
   --bg: #fff; --fg: #111; --muted: #6a6a6a; --line: #b8b8b8;
   --row: #fff; --inv-bg: #000; --inv-fg: #fff; --field: #fff;
 }
