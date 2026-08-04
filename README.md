@@ -5,7 +5,7 @@ llm can read and write too. one set of plain json files on your disk, two doors 
 vanilla web ui for you, and an [mcp](https://modelcontextprotocol.io) server for an assistant
 like claude. no accounts, no cloud, no tracking. your data never leaves your machine.
 
-![the today view — the coach's next move up top, then what needs attention, this week's recap, appointments, todos due, today's wins, and your streak](docs/today.png)
+![the today view — the coach's next move up top, then appointments, todos due, and today's wins](docs/today.png)
 
 ![the month calendar — appointments, due todos, and logged wins on one grid, with a day panel](docs/calendar.png)
 
@@ -42,11 +42,10 @@ no build step, no `npm`, no dependencies for the app itself.
 
 five sections (number keys switch them):
 
-1. **today** — your daily glance. the **coach line** (if set) sits at the very top — one next move,
-   stamped with its age. then **needs attention** (overdue + stale todos and how long it's been since
-   your last win) and a **this week** recap (completion rate, wins, busiest day); then appointments
-   today, todos due/overdue, today's wins with a one-field win logger, the next 7 days, and a streak
-   ribbon. open this first each day.
+1. **today** — your daily glance, kept lean on purpose. the **coach line** (if set) sits at the very
+   top — one next move, stamped with its age. then appointments today, todos due/overdue (an overdue
+   one-off gets a one-tap **→ tmrw** snooze — busy days happen), and today's wins with a one-field
+   win logger. open this first each day.
 2. **calendar** — month grid; click a day to see what's on it and add an appointment with the **full
    controls right there** (time, place, repeat, end-date) — no jumping to another page. colored
    marks: green = a win, blue = an appointment, yellow = a due todo, violet = a diary entry.

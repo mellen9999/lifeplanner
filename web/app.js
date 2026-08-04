@@ -19,8 +19,6 @@ const REPEAT_OPTIONS = [
 ];
 
 let state = { achievements: [], todos: [], appointments: [], journal: [], settings: {}, coach: {}, version: "" };
-let slipping = null;   // cached /api/slipping response
-let weekReview = null; // cached /api/review?days=7 response
 let view = "today";
 let sel = -1;                 // selected list index in current section
 let editing = null;           // id of the item being edited inline
@@ -245,20 +243,7 @@ async function refresh() {
     return;
   }
   applyTheme();
-  // fetch planning-partner data in parallel; failures are non-fatal (stale cache ok)
-  if (view === "today") await refreshPlannerData();
   render();
-}
-
-async function refreshPlannerData() {
-  try {
-    [slipping, weekReview] = await Promise.all([
-      api("GET", "/api/slipping"),
-      api("GET", "/api/review?days=7"),
-    ]);
-  } catch (e) {
-    // silently keep whatever was cached; the blocks will render with stale data
-  }
 }
 
 async function add(entity, data) {
@@ -416,7 +401,7 @@ function setView(v) {
   // refresh (or the installed pwa) reopens where you were. guarded: the hashchange
   // listener no-ops when the hash already matches the current view.
   if (location.hash.slice(1) !== v) location.hash = v;
-  if (v === "today") { refreshPlannerData().then(render); } else { render(); }
+  render();
 }
 
 function currentList() {
@@ -791,111 +776,6 @@ function mountList(container, items, builder, emptyMsg) {
   container.appendChild(list);
 }
 
-// ---- planning partner blocks -----------------------------------------------
-
-function renderSlipping() {
-  const d = slipping;
-  const wrap = el("div", "pp-block");
-
-  if (!d) return wrap; // not yet loaded
-
-  const overdue = d.overdue_todos || [];
-  const stale = d.stale_todos || [];
-  const dsw = d.days_since_win;
-
-  // win gap line
-  const winLine = el("div", "pp-row");
-  const winMk = el("span", "mk ach");
-  let winText;
-  if (dsw === null || dsw === undefined) winText = "no wins logged yet";
-  else if (dsw === 0) winText = "logged a win today";
-  else winText = `${dsw}d since last win`;
-  winLine.append(winMk, el("span", null, winText));
-  wrap.appendChild(winLine);
-
-  if (!overdue.length && !stale.length) {
-    const ok = el("div", "pp-row pp-ok");
-    ok.appendChild(el("span", "mk ach"));
-    ok.appendChild(el("span", null, "nothing slipping"));
-    wrap.appendChild(ok);
-    return wrap;
-  }
-
-  if (overdue.length) {
-    const hdr = el("div", "pp-hdr");
-    hdr.appendChild(el("span", "pp-badge pp-red", String(overdue.length)));
-    hdr.appendChild(el("span", null, " overdue"));
-    wrap.appendChild(hdr);
-    overdue.forEach(t => {
-      const row = el("div", "pp-row pp-overdue");
-      row.appendChild(el("span", "mk todo"));
-      row.appendChild(el("span", "pp-title", t.title));
-      row.appendChild(el("span", "pp-meta", `${t.days_late}d late`));
-      wrap.appendChild(row);
-    });
-  }
-
-  if (stale.length) {
-    const hdr = el("div", "pp-hdr");
-    hdr.appendChild(el("span", "pp-badge pp-yellow", String(stale.length)));
-    hdr.appendChild(el("span", null, " stale"));
-    wrap.appendChild(hdr);
-    stale.forEach(t => {
-      const row = el("div", "pp-row pp-stale");
-      row.appendChild(el("span", "mk todo"));
-      row.appendChild(el("span", "pp-title", t.title));
-      row.appendChild(el("span", "pp-meta", `${t.age_days}d old`));
-      wrap.appendChild(row);
-    });
-  }
-
-  return wrap;
-}
-
-function renderWeekRecap() {
-  const d = weekReview;
-  const wrap = el("div", "pp-recap");
-
-  if (!d) return wrap;
-
-  const rate = d.completion_rate != null
-    ? `${Math.round(d.completion_rate * 100)}%`
-    : "—";
-  const xy = `${d.completed_due ?? 0}/${d.due_in_window ?? 0} done`;
-  const winsCount = d.wins_count ?? 0;
-  const busiest = d.busiest_day;
-
-  const row = el("div", "pp-recap-row");
-
-  const rateEl = el("span", "pp-recap-item");
-  rateEl.appendChild(el("span", "pp-recap-n", rate));
-  rateEl.appendChild(el("span", "pp-recap-l", ` ${xy}`));
-  row.appendChild(rateEl);
-
-  const winsEl = el("span", "pp-recap-item");
-  winsEl.appendChild(el("span", "pp-recap-n", String(winsCount)));
-  winsEl.appendChild(el("span", "pp-recap-l", " wins"));
-  row.appendChild(winsEl);
-
-  if (busiest) {
-    const busyEl = el("span", "pp-recap-item");
-    busyEl.appendChild(el("span", "pp-recap-l", `busiest: `));
-    busyEl.appendChild(el("span", "pp-recap-n", busiest.date.slice(5)));
-    busyEl.appendChild(el("span", "pp-recap-l", ` (${busiest.items})`));
-    row.appendChild(busyEl);
-  }
-
-  if (d.routine_total) {
-    const rEl = el("span", "pp-recap-item");
-    rEl.appendChild(el("span", "pp-recap-n", `${d.routine_completions ?? 0}/${d.routine_total}`));
-    rEl.appendChild(el("span", "pp-recap-l", " routines"));
-    row.appendChild(rEl);
-  }
-
-  wrap.appendChild(row);
-  return wrap;
-}
-
 // ---- today / agenda ---------------------------------------------------------
 
 function renderToday() {
@@ -908,18 +788,6 @@ function renderToday() {
   if (coach) root.appendChild(coach);
   const head = el("h2", "section-h", `today — ${MONTHS[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`);
   root.appendChild(head);
-
-  // planning partner: needs-attention + week recap
-  const ppWrap = el("div", "pp-wrap");
-  const ppAttn = el("div", "pp-section");
-  ppAttn.appendChild(el("div", "pp-label", "needs attention"));
-  ppAttn.appendChild(renderSlipping());
-  ppWrap.appendChild(ppAttn);
-  const ppRecap = el("div", "pp-section");
-  ppRecap.appendChild(el("div", "pp-label", "this week"));
-  ppRecap.appendChild(renderWeekRecap());
-  ppWrap.appendChild(ppRecap);
-  root.appendChild(ppWrap);
 
   const grid = el("div", "agenda");
 
@@ -961,19 +829,7 @@ function renderToday() {
   winCard.appendChild(q);
   grid.appendChild(winCard);
 
-  // next 7 days peek (occurrences after today, recurring series included)
-  const soon = [];
-  visibleAppts().forEach(a =>
-    apptOccurrences(a, addDays(t, 1), addDays(t, 7)).forEach(w => soon.push({ when: w, title: a.title })));
-  soon.sort((a, b) => (a.when > b.when ? 1 : -1));
-  grid.appendChild(agendaCard("next 7 days", soon.length
-    ? soon.map(a => agendaLine("appt", `${a.when.slice(5, 10)}  ${a.title}`, ""))
-    : [el("div", "muted small", "clear")]));
-
   root.appendChild(grid);
-
-  // streak ribbon
-  root.appendChild(streakRibbon());
 }
 
 // the coach box: the claude-written directive line (the "next optimal move")
@@ -1067,6 +923,14 @@ function agendaTodo(x, label) {
   body.appendChild(el("span", null, x.title));
   body.appendChild(el("div", "sub", label));
   li.appendChild(body);
+  // overdue one-offs get a one-tap snooze: due moves to tomorrow, the late
+  // counter stops nagging, nothing is lost. busy days happen.
+  if (!x.recur && !doneNow && x.due && x.due < ti) {
+    const snz = el("button", "snooze", "→ tmrw"); snz.type = "button";
+    snz.title = "snooze — due tomorrow";
+    snz.onclick = (e) => { e.stopPropagation(); patch("todos", x.id, { due: addDays(ti, 1) }); };
+    li.appendChild(snz);
+  }
   return li;
 }
 
