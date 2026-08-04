@@ -176,18 +176,28 @@ def complete_todo(todo_id: str, date: str = "") -> dict:
 
 @mcp.tool()
 def add_appointment(title: str, when: str, end: str = "", location: str = "", note: str = "",
-                    recur: str = "", interval: int = 1, until: str = "") -> dict:
+                    recur: str = "", interval: int = 1, until: str = "",
+                    force: bool = False) -> dict:
     """add an appointment. when = 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM'.
     end = the finish time, same format as when (e.g. when='2026-06-16 14:00',
     end='2026-06-16 15:00' = a 2–3pm block). all-day spans use dates. end is kept
     only when it falls after the start; leave it off for a point-in-time event.
     to repeat it, set recur = 'daily' | 'weekly' | 'monthly' and interval = N
     (e.g. recur='weekly', interval=2 on a thursday = every other thursday).
-    until = 'YYYY-MM-DD' optionally caps the repeat (last possible occurrence)."""
+    until = 'YYYY-MM-DD' optionally caps the repeat (last possible occurrence).
+    if the exact date+time slot is already booked the add is refused as a likely
+    duplicate and the existing appointment is returned — treat it as the same
+    event (update it instead) unless it genuinely is a second event at the same
+    time, in which case retry with force=true."""
     try:
         return store.add_item("appointments",
                               {"title": title, "when": when, "end": end, "location": location,
-                               "note": note, "recur": _recur(recur, interval, until)})
+                               "note": note, "recur": _recur(recur, interval, until)},
+                              force=force)
+    except store.DuplicateError as e:
+        ex = e.existing
+        return {"error": str(e), "duplicate_of": {k: ex.get(k, "") for k in
+                                                  ("id", "title", "when", "location", "note")}}
     except store.SyncError:
         return {"error": "calendar server unreachable — not saved"}
 

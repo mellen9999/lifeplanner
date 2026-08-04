@@ -59,6 +59,33 @@ class StoreTest(unittest.TestCase):
         a = store.add_item("appointments", {"title": "dr", "when": "2026-06-24 14:30"})
         self.assertEqual(a["when"], "2026-06-24T14:30")
 
+    # ---- duplicate-slot guard ----
+    def test_duplicate_slot_refused(self):
+        store.add_item("appointments", {"title": "lab blood draw", "when": "2026-08-04 09:40"})
+        with self.assertRaises(store.DuplicateError) as cm:
+            store.add_item("appointments", {"title": "kaiser bloodwork", "when": "2026-08-04 09:40"})
+        self.assertEqual(cm.exception.existing["title"], "lab blood draw")
+        self.assertEqual(len(store.list_items("appointments")), 1)
+
+    def test_duplicate_slot_force_overrides(self):
+        store.add_item("appointments", {"title": "a", "when": "2026-08-04 09:40"})
+        store.add_item("appointments", {"title": "b", "when": "2026-08-04 09:40"}, force=True)
+        store.add_item("appointments", {"title": "c", "when": "2026-08-04 09:40", "force": True})
+        items = store.list_items("appointments")
+        self.assertEqual(len(items), 3)
+        self.assertTrue(all("force" not in a for a in items))
+
+    def test_date_only_never_conflicts(self):
+        store.add_item("appointments", {"title": "trip", "when": "2026-08-04"})
+        store.add_item("appointments", {"title": "conference", "when": "2026-08-04"})
+        store.add_item("appointments", {"title": "checkup", "when": "2026-08-04 09:40"})
+        self.assertEqual(len(store.list_items("appointments")), 3)
+
+    def test_different_time_no_conflict(self):
+        store.add_item("appointments", {"title": "a", "when": "2026-08-04 09:40"})
+        store.add_item("appointments", {"title": "a", "when": "2026-08-04 10:40"})
+        self.assertEqual(len(store.list_items("appointments")), 2)
+
     def test_bad_date_falls_back(self):
         a = store.add_item("achievements", {"title": "x", "date": "garbage"})
         self.assertEqual(a["date"], date.today().isoformat())

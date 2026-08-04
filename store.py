@@ -52,6 +52,18 @@ class SyncError(Exception):
     callers surface this to the user instead of crashing or losing the change."""
 
 
+class DuplicateError(ValueError):
+    """an appointment add landed on an exact date+time slot that's already
+    booked — almost always the same event under different wording (manual add
+    vs email auto-add). callers offer an explicit override (force) for the rare
+    genuine double-booking."""
+
+    def __init__(self, existing):
+        self.existing = existing
+        when = (existing.get("when") or "").replace("T", " ")
+        super().__init__(f'already booked: "{existing.get("title")}" @ {when}')
+
+
 # whether the last appointments read came live from the server or fell back to
 # cache — surfaced to the ui so it never silently shows stale data as current.
 _appt_source = "local"
@@ -333,8 +345,28 @@ def _normalize(name, item):
     return base
 
 
-def add_item(name, item):
+def _slot_conflict(new):
+    """the existing appointment occupying new's exact date+time slot, or None.
+    date-only events have no slot and never conflict."""
+    when = (new.get("when") or "").replace("T", " ")[:16]
+    if len(when) < 16:
+        return None
+    for a in list_items("appointments"):
+        if (a.get("when") or "").replace("T", " ")[:16] == when:
+            return a
+    return None
+
+
+def add_item(name, item, force=False):
+    # `force` may also arrive inside the payload (web/mcp callers) — peel it off
+    # so it's never stored. it bypasses only the duplicate-slot guard.
+    force = force or bool(item.get("force"))
+    item = {k: v for k, v in item.items() if k != "force"}
     new = _normalize(name, item)
+    if name == "appointments" and not force:
+        dupe = _slot_conflict(new)
+        if dupe is not None:
+            raise DuplicateError(dupe)
     if name == "appointments" and _CALDAV is not None:
         try:
             caldav_store.put_appointment(_CALDAV, new)

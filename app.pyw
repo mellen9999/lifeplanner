@@ -187,6 +187,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(400, {"error": "bad json"})
         try:
             return self._json(201, store.add_item(entity, data))
+        except store.DuplicateError as e:
+            ex = e.existing
+            return self._json(409, {"error": str(e),
+                                    "existing": {k: ex.get(k, "") for k in
+                                                 ("id", "title", "when", "location")}})
         except ValueError as e:
             return self._json(400, {"error": str(e)})
         except store.SyncError:

@@ -227,7 +227,12 @@ async function api(method, path, body) {
   if (TOKEN) opt.headers["Authorization"] = "Bearer " + TOKEN;
   if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
   const r = await fetch(path, opt);
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || r.statusText); }
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    const err = new Error(e.error || r.statusText);
+    err.status = r.status;
+    throw err;
+  }
   return r.status === 204 ? null : r.json();
 }
 
@@ -258,7 +263,12 @@ async function refreshPlannerData() {
 
 async function add(entity, data) {
   try { await api("POST", `/api/${entity}`, data); await refresh(); }
-  catch (e) { toast(e.message); }
+  catch (e) {
+    // duplicate slot — same date+time already booked. one-tap override for a
+    // genuine double-booking; otherwise the dupe just doesn't happen.
+    if (e.status === 409) return toast(e.message, "add anyway", () => add(entity, { ...data, force: true }));
+    toast(e.message);
+  }
 }
 async function patch(entity, id, data) {
   try { await api("PATCH", `/api/${entity}/${id}`, data); await refresh(); }
