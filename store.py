@@ -563,6 +563,62 @@ def set_coach(line):
     return obj
 
 
+# ---- coach chat + memory ----------------------------------------------------
+# the coach's persistence. every chat turn is kept append-only (nothing mellen
+# tells the coach is ever lost), and durable facts the coach distils live in a
+# separate memory list. both feed the coach prompt so it never starts cold.
+
+COACH_MSG_MAX = 4000    # one chat turn
+COACH_NOTE_MAX = 500    # one memory note
+
+
+def log_coach_turn(role, text):
+    """append one chat turn (role: 'you' | 'coach'). returns the stored turn,
+    or None for blank/invalid input."""
+    text = str(text or "").strip()[:COACH_MSG_MAX]
+    if not text or role not in ("you", "coach"):
+        return None
+    turn = {"role": role, "text": text,
+            "ts": datetime.now().isoformat(timespec="minutes")}
+    with FileLock():
+        turns = _read_raw("coach_chat", [])
+        if not isinstance(turns, list):
+            turns = []
+        turns.append(turn)
+        _write_raw("coach_chat", turns)
+    return turn
+
+
+def coach_chat_tail(n=12):
+    """the most recent n chat turns, oldest first."""
+    turns = _read_raw("coach_chat", [])
+    if not isinstance(turns, list):
+        return []
+    return [t for t in turns[-max(1, n):] if isinstance(t, dict)]
+
+
+def add_coach_memory(note):
+    """save one durable fact about mellen. whitespace-collapsed, length-capped."""
+    note = " ".join(str(note or "").split())[:COACH_NOTE_MAX]
+    if not note:
+        return None
+    entry = {"note": note, "date": date.today().isoformat()}
+    with FileLock():
+        notes = _read_raw("coach_memory", [])
+        if not isinstance(notes, list):
+            notes = []
+        notes.append(entry)
+        _write_raw("coach_memory", notes)
+    return entry
+
+
+def list_coach_memory():
+    notes = _read_raw("coach_memory", [])
+    if not isinstance(notes, list):
+        return []
+    return [n for n in notes if isinstance(n, dict) and n.get("note")]
+
+
 # ---- date helpers -----------------------------------------------------------
 
 def _norm_date(s):
@@ -736,7 +792,7 @@ def state():
                           reverse=True),
         "sync": appointments_status(),
         "settings": get_settings(),
-        "coach": get_coach(),
+        "coach": {**get_coach(), "chat": coach_chat_tail(12)},
         "version": version(),
     }
 
@@ -748,7 +804,7 @@ def version():
     # derived from ENTITIES (+ settings + the hidden overlay, so a mute/unmute
     # refreshes every open ui) — a new entity's writes always flip the token; in
     # caldav mode appointments live on the server, so watch the cache.
-    names = ["settings", "hidden_appts", "coach"]
+    names = ["settings", "hidden_appts", "coach", "coach_chat", "coach_memory"]
     for e in ENTITIES:
         names.append("appointments.cache" if (e == "appointments" and _CALDAV is not None) else e)
     latest = 0
@@ -969,7 +1025,8 @@ def export_bytes():
     restore by unzipping back into the data dir."""
     # derived from ENTITIES so a new entity can never be silently left out of a
     # backup. settings + the caldav cache round out the on-disk vault.
-    names = (*ENTITIES, "appointments.cache", "settings", "hidden_appts", "coach")
+    names = (*ENTITIES, "appointments.cache", "settings", "hidden_appts",
+             "coach", "coach_chat", "coach_memory")
     # read raw bytes under the lock (a consistent snapshot), then compress
     # outside it — compression is CPU-bound and must not block concurrent writes.
     blobs = {}

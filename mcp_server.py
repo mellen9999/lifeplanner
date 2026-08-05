@@ -312,6 +312,24 @@ def update_journal(item_id: str, text: str = "", when: str = "") -> dict:
 
 
 @mcp.tool()
+def remember(note: str) -> dict:
+    """save one durable fact about the user to your long-term memory — a
+    preference, situation, constraint, goal, or anything he tells you that should
+    shape future coaching (e.g. 'hates phone notifications', 'sleep drifts late
+    when heatsync stalls'). one concise sentence per call. recent memory is shown
+    to you every turn; use list_memory for the rest. save proactively — whenever
+    he shares something worth keeping, don't wait to be asked."""
+    entry = store.add_coach_memory(note)
+    return entry or {"error": "empty note"}
+
+
+@mcp.tool()
+def list_memory() -> list:
+    """everything you've remembered about the user, oldest first."""
+    return store.list_coach_memory()
+
+
+@mcp.tool()
 def get_week() -> dict:
     """everything in the next 7 days, grouped by date — appointments, due todos, wins."""
     today = date.today()

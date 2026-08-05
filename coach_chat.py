@@ -29,8 +29,9 @@ CLAUDE = os.environ.get("LIFEPLANNER_CLAUDE_BIN") or shutil.which("claude") or "
 PY = os.environ.get("LIFEPLANNER_PY") or sys.executable
 MCP_SERVER = str(BASE / "mcp_server.py")
 TIMEOUT = int(os.environ.get("LIFEPLANNER_COACH_TIMEOUT", "150"))
-MAX_MSG = 2000
-MAX_TURNS = 12  # most recent turns of history sent back for context
+MAX_MSG = store.COACH_MSG_MAX  # one message cap — shared with the store's turn cap
+MAX_TURNS = 12   # most recent turns of history included for context
+MAX_NOTES = 30   # most recent memory notes inlined (list_memory serves the rest)
 
 # exactly the tools the coach may use — reads + non-destructive writes. delete is
 # deliberately absent: the coach creates and modifies, never destroys (data
@@ -43,6 +44,7 @@ _TOOLS = (
     "add_appointment", "update_appointment",
     "add_achievement", "update_achievement",
     "add_journal", "update_journal",
+    "remember", "list_memory",
 )
 ALLOWED = [f"mcp__lifeplanner__{t}" for t in _TOOLS]
 # defence-in-depth: even though only ALLOWED is whitelisted, name the shell/file
@@ -93,6 +95,18 @@ def _state_summary(today):
     return "\n".join(parts)
 
 
+def _memory_summary():
+    """the coach's saved facts about mellen, most recent MAX_NOTES inline. keeps
+    the prompt bounded; the list_memory tool serves anything older."""
+    notes = store.list_coach_memory()
+    if not notes:
+        return "nothing saved yet"
+    lines = [f'{n.get("date", "")}: {n["note"]}' for n in notes[-MAX_NOTES:]]
+    if len(notes) > MAX_NOTES:
+        lines.insert(0, f"({len(notes) - MAX_NOTES} older notes — list_memory has all)")
+    return "\n".join(lines)
+
+
 def _persona(today):
     return (
         "you are mellen's sharp, agentic life coach, living inside his lifeplanner "
@@ -103,9 +117,13 @@ def _persona(today):
         "his calendar, reschedule it or set hidden=true (mute) instead. his one "
         "campaign is financial independence — his own income, his own place. his "
         "priority project is heatsync, a pre-launch threaded social platform for "
-        "twitch/kick; shipping it is the lever. reply short, lowercase, plain text, "
-        "no markdown, warm and direct. don't invent facts — check with a tool when "
-        f"unsure. today is {today}."
+        "twitch/kick; shipping it is the lever. you have long-term memory: your "
+        "saved notes about him are below, and whenever he tells you anything worth "
+        "keeping — a preference, situation, constraint, plan, how he's doing — "
+        "call remember to save it (concise, one fact per note) before you reply. "
+        "he expects to brain-dump whole paragraphs at you and have none of it "
+        "lost. reply short, lowercase, plain text, no markdown, warm and direct. "
+        f"don't invent facts — check with a tool when unsure. today is {today}."
     )
 
 
@@ -123,15 +141,22 @@ def _transcript(history, message):
     return "\n".join(lines)
 
 
-def respond(message, history):
+def respond(message):
     """run one agentic turn. returns {"reply": str} or {"error": str}. never
-    raises — every failure path degrades to a short spoken error."""
+    raises — every failure path degrades to a short spoken error.
+
+    history and memory come from the store, not the client — the coach remembers
+    across sessions and devices. the user turn is logged BEFORE claude runs, so
+    even a timeout never loses what mellen typed."""
     message = (message or "").strip()[:MAX_MSG]
     if not message:
         return {"error": "empty message"}
     today = date.today().isoformat()
-    prompt = (f"{_persona(today)}\n\ncurrent state:\n{_state_summary(today)}\n\n"
+    history = store.coach_chat_tail(MAX_TURNS)  # read before logging this turn
+    prompt = (f"{_persona(today)}\n\nwhat you know about mellen (saved memory):\n"
+              f"{_memory_summary()}\n\ncurrent state:\n{_state_summary(today)}\n\n"
               f"conversation so far:\n{_transcript(history, message)}")
+    store.log_coach_turn("you", message)
     cmd = [CLAUDE, "-p", prompt,
            "--mcp-config", _mcp_config_path(), "--strict-mcp-config",
            "--allowedTools", *ALLOWED, "--disallowedTools", *DISALLOWED]
@@ -147,4 +172,5 @@ def respond(message, history):
         return {"error": "coach failed — " + ((r.stderr or "").strip()[:200] or "no output")}
     if not out:
         return {"error": "coach had nothing to say — try rephrasing"}
+    store.log_coach_turn("coach", out)
     return {"reply": out}

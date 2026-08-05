@@ -168,8 +168,7 @@ class Handler(BaseHTTPRequestHandler):
             # agentic: claude may take up to TIMEOUT to act via the lifeplanner
             # tools. the server is threaded, so this long call never blocks the
             # poller or other requests.
-            return self._json(200, coach_chat.respond(
-                data.get("message", ""), data.get("history", [])))
+            return self._json(200, coach_chat.respond(data.get("message", "")))
         entity = self._entity(path, exact=True)
         if entity is None:
             return self._json(404, {"error": "not found"})
