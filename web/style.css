@@ -285,16 +285,19 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .coach-meta { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-top: 7px; }
 /* agentic coach chat — square terminal bubbles; coach can act, so replies read
    like a log of what changed */
-.coach-chat { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.coach-chat { display: flex; flex-direction: column; gap: 6px; margin-top: 10px;
+  max-height: 320px; overflow-y: auto; }
+.cc-msg.you { white-space: pre-wrap; }
 .cc-msg { font-size: 13px; line-height: 1.45; padding: 5px 9px; border: 1px solid var(--line); overflow-wrap: anywhere; }
 .cc-msg.you { border-left: 2px solid var(--muted); color: var(--muted); }
 .cc-msg.coach { border-left: 2px solid var(--accent); white-space: pre-wrap; }
 .cc-pending { color: var(--muted); }
-.coach-ask { display: flex; gap: 6px; margin-top: 9px; }
-.coach-ask input { flex: 1 1 auto; font: inherit; background: var(--field); color: var(--fg);
-  border: 1px solid var(--line); padding: 6px 8px; border-radius: 0; }
-.coach-ask input:focus, .coach-ask input.flash { outline: 2px solid var(--accent); }
-.coach-ask input:disabled { opacity: .5; }
+.coach-ask { display: flex; gap: 6px; margin-top: 9px; align-items: flex-end; }
+.coach-ask textarea { flex: 1 1 auto; font: inherit; background: var(--field); color: var(--fg);
+  border: 1px solid var(--line); padding: 6px 8px; border-radius: 0;
+  resize: none; max-height: 40vh; }
+.coach-ask textarea:focus, .coach-ask textarea.flash { outline: 2px solid var(--accent); }
+.coach-ask textarea:disabled { opacity: .5; }
 .coach-ask button { font: inherit; background: var(--bg); color: var(--fg);
   border: 1px solid var(--fg); padding: 6px 14px; cursor: pointer; }
 .coach-ask button:hover:not(:disabled) { background: var(--inv-bg); color: var(--inv-fg); }
@@ -402,11 +405,3 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .row.editing textarea { resize: vertical; min-height: 2.4em; vertical-align: top; }
 .row.editing button.rowedit { margin-left: 0; border: 1px solid var(--fg); padding: 5px 12px; color: var(--fg); background: var(--bg); }
 .row.editing button.rowedit:hover { background: var(--inv-bg); color: var(--inv-fg); }
-
-/* one-tap snooze on overdue rows (today view) — quiet until hovered */
-.card2 .li .snooze {
-  margin-left: auto; flex: 0 0 auto; font: inherit; font-size: 11px;
-  background: var(--bg); color: var(--muted); border: 1px solid var(--line);
-  padding: 1px 6px; cursor: pointer; border-radius: 0;
-}
-.card2 .li .snooze:hover { background: var(--inv-bg); color: var(--inv-fg); border-color: var(--inv-bg); }

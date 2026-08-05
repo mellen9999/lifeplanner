@@ -37,7 +37,8 @@ try { showHidden = localStorage.getItem("lp-show-hidden") === "1"; } catch {}
 let lastDeleted = null;       // {entity, item} for single-level undo
 let search = "";              // active filter query ("" = off)
 let searchOpen = false;       // filter bar visible
-let coachChat = [];           // agentic coach transcript (this session, in-memory)
+let coachPending = "";        // message in flight (shown until the server echoes it back)
+let coachError = "";          // transient error from the last turn (never persisted)
 let coachBusy = false;        // a coach turn is in flight (locks the input)
 
 // ---- helpers ----------------------------------------------------------------
@@ -202,9 +203,6 @@ function todoUrgency(t) {
   return days <= 0 ? "red" : days <= 3 ? "yellow" : "peaceful";
 }
 const URG_RANK = { red: 0, yellow: 1, routine: 2, peaceful: 3 };
-// a one-off earns a place on TODAY when it's actionable now — overdue/soon (≤3d)
-// or undated ("anytime"). a far-future deadline stays parked off today until it nears.
-function todoOnToday(t) { return !t.due || dayDiff(todayIso(), t.due) <= 3; }
 // the todos page order: open before done, most-urgent first, then by due date.
 function orderedTodos() {
   // open before done, then by urgency tier, then manual order (0 = unset → end),
@@ -645,7 +643,7 @@ function tickEl(done, onToggle) {
   t.title = done ? "mark not done" : "mark done";
   t.setAttribute("role", "checkbox");
   t.setAttribute("aria-checked", done ? "true" : "false");
-  t.tabIndex = 0;  // keyboard-reachable (the only way to tick on the today view)
+  t.tabIndex = 0;  // keyboard-reachable
   t.onclick = (e) => { e.stopPropagation(); onToggle(); };
   t.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onToggle(); } };
   return t;
@@ -791,29 +789,32 @@ function renderToday() {
 
   const grid = el("div", "agenda");
 
-  // appointments today (expand recurring series to today's occurrence)
-  const appts = [];
-  visibleAppts().forEach(a =>
-    apptOccurrences(a, t, t).forEach(w => appts.push({ ...a, when: w })));
-  appts.sort((a, b) => (a.when > b.when ? 1 : -1));
-  grid.appendChild(agendaCard("appointments today", appts.length
-    ? appts.map(a => agendaLine("appt", (timeOf(a.when) ? fmtTimeRange(a.when, a.end) + "  " : "") + a.title, a.location))
-    : [el("div", "muted small", "nothing scheduled")]));
+  // one day's occurrences (recurring series expanded), time-sorted agenda lines
+  const dayAppts = (dayIso) => {
+    const appts = [];
+    visibleAppts().forEach(a =>
+      apptOccurrences(a, dayIso, dayIso).forEach(w => appts.push({ ...a, when: w })));
+    return appts.sort((a, b) => (a.when > b.when ? 1 : -1));
+  };
+  const apptLine = (a) =>
+    agendaLine("appt", (timeOf(a.when) ? fmtTimeRange(a.when, a.end) + "  " : "") + a.title, a.location);
 
-  // today's actionable one-offs (overdue / soon / anytime — far-future stays parked),
-  // most-urgent first and colour-coded, then today's routines. this is the "what's
-  // next" list: the top red item is literally the next thing to do.
-  const actionable = state.todos.filter(x => !x.recur && !x.done && todoOnToday(x))
-    .sort((a, b) => (URG_RANK[todoUrgency(a)] - URG_RANK[todoUrgency(b)])
-      || ((a.due || "9999") > (b.due || "9999") ? 1 : -1));
-  const routines = state.todos.filter(x => x.recur && todoOccursOn(x, t))
-    .sort((a, b) => (a.order || 1e9) - (b.order || 1e9));  // logical day-order
-  const todoLines = [];
-  actionable.forEach(x => todoLines.push(agendaTodo(x,
-    !x.due ? "anytime" : x.due < t ? `overdue · ${x.due}` : x.due === t ? "due today" : `due ${x.due}`)));
-  routines.forEach(x => todoLines.push(agendaTodo(x, routineLabel(x))));
-  grid.appendChild(agendaCard("todos due", todoLines.length ? todoLines
-    : [el("div", "muted small", "nothing due — nice")]));
+  // appointments today — REMAINING only: a timed appt drops off once it's over
+  // (its end, or its start when open-ended, is behind now). all-day ones stay.
+  const nowT = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const remaining = dayAppts(t).filter(a => {
+    const startT = timeOf(a.when);
+    return !startT || (timeOf(a.end) || startT) >= nowT;
+  });
+  grid.appendChild(agendaCard("appointments today", remaining.length
+    ? remaining.map(apptLine)
+    : [el("div", "muted small", "nothing left today")]));
+
+  // and tomorrow's — so the evening glance answers "what am i waking up into"
+  const tomorrow = dayAppts(addDays(t, 1));
+  grid.appendChild(agendaCard("appointments tomorrow", tomorrow.length
+    ? tomorrow.map(apptLine)
+    : [el("div", "muted small", "nothing scheduled")]));
 
   // wins today + quick logger (the daily habit)
   const wins = state.achievements.filter(a => a.date === t);
@@ -847,24 +848,34 @@ function renderCoach() {
     box.appendChild(el("div", "coach-meta", ago ? `coach · ${ago}` : "coach"));
   }
 
-  // transcript (this session), then the ask input. the coach can change data,
-  // so a reply is followed by a state refresh — the rest of the page updates too.
-  if (coachChat.length || coachBusy) {
+  // transcript — persisted server-side (the coach remembers across sessions and
+  // devices), plus the in-flight message and any transient error from last turn.
+  const turns = (c.chat || []).slice();
+  if (coachPending) turns.push({ role: "you", text: coachPending });
+  if (turns.length || coachBusy || coachError) {
     const log = el("div", "coach-chat");
-    coachChat.forEach(m => {
+    turns.forEach(m => {
       const b = el("div", "cc-msg " + (m.role === "you" ? "you" : "coach"));
       b.textContent = m.text;
       log.appendChild(b);
     });
     if (coachBusy) log.appendChild(el("div", "cc-msg coach cc-pending", "thinking…"));
+    if (coachError) log.appendChild(el("div", "cc-msg coach cc-pending", `(${coachError})`));
     box.appendChild(log);
+    log.scrollTop = log.scrollHeight;  // pinned to the latest turn
   }
 
+  // brain-dump friendly: a growing textarea — enter sends, shift+enter newlines.
   const form = el("form", "coach-ask");
-  const inp = el("input");
-  inp.placeholder = "ask the coach — or tell it to do something";
-  inp.autocomplete = "off"; inp.spellcheck = false; inp.id = "coach-input";
+  const inp = el("textarea");
+  inp.placeholder = "tell the coach anything — it acts on it and remembers";
+  inp.rows = 1; inp.spellcheck = false; inp.id = "coach-input";
   inp.disabled = coachBusy;
+  const grow = () => { inp.style.height = "auto"; inp.style.height = inp.scrollHeight + "px"; };
+  inp.oninput = grow;
+  inp.onkeydown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); coachSend(inp.value); }
+  };
   const btn = el("button", null, coachBusy ? "…" : "send");
   btn.type = "submit"; btn.disabled = coachBusy;
   form.append(inp, btn);
@@ -873,28 +884,25 @@ function renderCoach() {
   return box;
 }
 
-// one agentic turn. the message + recent history go to the coach; while it works
-// the input locks and a "thinking…" line shows. its reply lands in the
-// transcript and the whole page refreshes (it may have changed todos/appts).
+// one agentic turn. the message goes up; history + memory live server-side.
+// while the coach works the input locks and a "thinking…" line shows; the reply
+// arrives via the state refresh (it may have changed todos/appts too).
 async function coachSend(text) {
   text = (text || "").trim();
   if (coachBusy || !text) return;
-  coachChat.push({ role: "you", text });
+  coachPending = text;
+  coachError = "";
   coachBusy = true;
   render();
-  let reply;
   try {
-    // history excludes the turn we just pushed — the server appends `message`
-    // itself, so sending it here too would double the line in the prompt.
-    const history = coachChat.slice(0, -1).slice(-12);
-    const r = await api("POST", "/api/coach/chat", { message: text, history });
-    reply = r.error ? `(${r.error})` : (r.reply || "(no reply)");
+    const r = await api("POST", "/api/coach/chat", { message: text });
+    if (r.error) coachError = r.error;
   } catch (e) {
-    reply = `(error: ${e.message})`;
+    coachError = e.message;
   }
-  coachChat.push({ role: "coach", text: reply });
   coachBusy = false;
-  await refresh();          // repaints today (incl. this transcript) with fresh state
+  coachPending = "";
+  await refresh();          // repaints today with the persisted transcript
   const inp = document.getElementById("coach-input");
   if (inp) inp.focus();
 }
@@ -914,26 +922,6 @@ function agendaLine(kind, text, sub) {
   li.appendChild(body);
   return li;
 }
-function agendaTodo(x, label) {
-  const ti = todayIso();
-  const doneNow = todoDoneOn(x, ti);  // routine → done today; one-off → global flag
-  const li = el("div", "li urg-" + todoUrgency(x) + (doneNow ? " done" : ""));
-  li.appendChild(tickEl(doneNow, () => toggleTodo(x, ti)));
-  const body = el("div");
-  body.appendChild(el("span", null, x.title));
-  body.appendChild(el("div", "sub", label));
-  li.appendChild(body);
-  // overdue one-offs get a one-tap snooze: due moves to tomorrow, the late
-  // counter stops nagging, nothing is lost. busy days happen.
-  if (!x.recur && !doneNow && x.due && x.due < ti) {
-    const snz = el("button", "snooze", "→ tmrw"); snz.type = "button";
-    snz.title = "snooze — due tomorrow";
-    snz.onclick = (e) => { e.stopPropagation(); patch("todos", x.id, { due: addDays(ti, 1) }); };
-    li.appendChild(snz);
-  }
-  return li;
-}
-
 // ---- achievements heatmap + streaks ----------------------------------------
 
 function winCounts() {
