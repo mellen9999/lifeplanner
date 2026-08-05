@@ -816,20 +816,6 @@ function renderToday() {
     ? tomorrow.map(apptLine)
     : [el("div", "muted small", "nothing scheduled")]));
 
-  // wins today + quick logger (the daily habit)
-  const wins = state.achievements.filter(a => a.date === t);
-  const winCard = el("div", "card2");
-  winCard.appendChild(el("h3", null, "wins today"));
-  wins.forEach(w => winCard.appendChild(agendaLine("ach", w.title, w.note)));
-  if (!wins.length) winCard.appendChild(el("div", "muted small", "log one below — even a small one counts"));
-  const q = el("form", "quick");
-  const inp = el("input"); inp.placeholder = "+ log a win"; inp.id = "today-win";
-  const b = el("button", null, "log"); b.type = "submit";
-  q.append(inp, b);
-  q.onsubmit = (e) => { e.preventDefault(); const v = inp.value.trim(); if (v) { inp.value = ""; add("achievements", { title: v }); } };
-  winCard.appendChild(q);
-  grid.appendChild(winCard);
-
   root.appendChild(grid);
 }
 
@@ -1510,11 +1496,7 @@ function shiftMonth(n) {
 
 function focusAdd() {
   const v = document.getElementById(view);
-  if (view === "today") {  // today has no add-row — n logs a win
-    const win = document.getElementById("today-win");
-    if (win) { win.focus(); win.classList.add("flash"); setTimeout(() => win.classList.remove("flash"), 400); }
-    return;
-  }
+  if (view === "today") { focusCoach(); return; }  // today's one input is the coach
   const form = v && v.querySelector(".add");
   if (form && form._first) {
     form._first.focus();

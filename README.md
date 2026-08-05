@@ -42,10 +42,10 @@ no build step, no `npm`, no dependencies for the app itself.
 
 five sections (number keys switch them):
 
-1. **today** — your daily glance, kept lean on purpose. the **coach line** (if set) sits at the very
-   top — one next move, stamped with its age. then what's **left** today (a timed appointment drops
-   off once it's over), tomorrow's appointments, and today's wins with a one-field win logger. todos
-   live on their own tab. open this first each day.
+1. **today** — your daily glance, one spot with one purpose: the **coach line** (if set) at the very
+   top — one next move, stamped with its age — then what's **left** today (a timed appointment drops
+   off once it's over) and tomorrow's appointments. todos and wins live on their own tabs. open this
+   first each day.
 2. **calendar** — month grid; click a day to see what's on it and add an appointment with the **full
    controls right there** (time, place, repeat, end-date) — no jumping to another page. colored
    marks: green = a win, blue = an appointment, yellow = a due todo, violet = a diary entry.
