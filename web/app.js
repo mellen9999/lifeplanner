@@ -1431,22 +1431,29 @@ function renderDayPanel() {
   const panel = el("div"); panel.id = "day-panel";
   const dp = new Date(selDay + "T00:00");
   panel.appendChild(el("h3", null, `${MONTHS[dp.getMonth()]} ${dp.getDate()}`));
-  const items = [];
-  visibleAppts().forEach(a => apptOccurrences(a, selDay, selDay)
-    .forEach(w => items.push(["appt", `${timeOf(w) ? fmtTimeRange(w, a.end) + " " : ""}${a.title}`.trim()])));
+  // one time-ordered agenda (all-day + undated first), every entry the same live
+  // row as its home tab — tick a todo, edit or delete anything, right here.
+  const entries = [];
+  visibleAppts().forEach(a => apptOccurrences(a, selDay, selDay).forEach(w => {
+    entries.push({ time: timeOf(w), kind: 0, row: () => listRow(a, "appointments",
+      [el("span", "mk appt"), buildBody(a.title,
+        [fmtTimeRange(w, a.end), a.location].filter(Boolean).join(" · "))]) });
+  }));
   state.todos.forEach(t => { if (todoOccursOn(t, selDay))
-    items.push(["todo", (todoDoneOn(t, selDay) ? "✓ " : "") + t.title]); });
-  state.achievements.filter(a => a.date === selDay)
-    .forEach(a => items.push(["ach", a.title]));
-  state.journal.filter(j => (j.when || "").slice(0, 10) === selDay)
-    .forEach(j => items.push(["jrnl", (j.body || "").split("\n")[0]]));
-  if (!items.length) panel.appendChild(el("div", "muted small", "nothing on this day"));
-  items.forEach(([kind, text]) => {
-    const li = el("div", "li");
-    li.appendChild(el("span", "mk " + kind));
-    li.appendChild(el("span", null, text));
-    panel.appendChild(li);
-  });
+    entries.push({ time: "", kind: 1, row: () => listRow(t, "todos",
+      [el("span", "mk todo"), buildBody(t.title, t.recur ? routineLabel(t) : "")],
+      { tick: true, tickDate: selDay, done: todoDoneOn(t, selDay) }) }); });
+  state.achievements.filter(a => a.date === selDay).forEach(a =>
+    entries.push({ time: "", kind: 2, row: () => listRow(a, "achievements",
+      [el("span", "mk ach"), buildBody(a.title, a.note)]) }));
+  state.journal.filter(j => (j.when || "").slice(0, 10) === selDay).forEach(j =>
+    entries.push({ time: timeOf(j.when), kind: 3, row: () => listRow(j, "journal",
+      [el("span", "mk jrnl"), buildBody((j.body || "").split("\n")[0])]) }));
+  entries.sort((a, b) => a.time === b.time ? a.kind - b.kind : (a.time < b.time ? -1 : 1));
+  if (!entries.length) panel.appendChild(el("div", "muted small", "nothing on this day"));
+  const list = el("div", "list");
+  entries.forEach(e => list.appendChild(e.row()));
+  panel.appendChild(list);
   // full controls right where you're looking — time, place, repeat, end-date —
   // pre-filled to the clicked day. same form as the appointments page.
   panel.appendChild(appointmentAddForm(selDay));
