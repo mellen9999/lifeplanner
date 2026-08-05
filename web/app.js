@@ -1068,32 +1068,38 @@ function appointmentAddForm(defaultWhen) {
   }));
 }
 
+// when an occurrence stops being upcoming: its end time, else its start time,
+// else (all-day) the end of its day.
+function occOverAt(k, end) {
+  const t = timeOf(k);
+  return t ? `${k.slice(0, 10)} ${timeOf(end) || t}` : `${k.slice(0, 10)} 23:59`;
+}
+function nowStamp() {
+  const d = new Date();
+  return `${todayIso()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+// the occurrence an appointment should be judged (and shown) by: a recurring
+// series resolves to its next un-finished hit — today's 2–3pm is done at 3pm
+// and the series reads as next week's. one-offs are just their own when.
+function nextUpcoming(a) {
+  const today = todayIso();
+  if (!(a.recur && a.recur.freq)) return a.when || "";
+  let k = nextOccurrence(a, today) || a.when || "";
+  if (k && occOverAt(k, a.end) < nowStamp())
+    k = nextOccurrence(a, addDays(today, 1)) || k;
+  return k;
+}
+
 // split appointments into upcoming (next occurrence not yet over, soonest
 // first) and past (already over, most recent first). time-aware: a 2–3pm appt
-// leaves upcoming at 3pm, not at midnight; a recurring series resolves to its
-// next un-finished hit. ONE ordering, shared by the view + keyboard nav so
-// j/k always lands on the row you see.
+// leaves upcoming at 3pm, not at midnight. ONE ordering, shared by the view +
+// keyboard nav so j/k always lands on the row you see.
 function orderedAppointments(list) {
-  const today = todayIso();
-  const d = new Date();
-  const now = `${today} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  // when an occurrence stops being upcoming: its end time, else its start time,
-  // else (all-day) the end of its day.
-  const overAt = (k, end) => {
-    const t = timeOf(k);
-    return t ? `${k.slice(0, 10)} ${timeOf(end) || t}` : `${k.slice(0, 10)} 23:59`;
-  };
-  const keyOf = a => {
-    if (!(a.recur && a.recur.freq)) return a.when || "";
-    let k = nextOccurrence(a, today) || a.when || "";
-    if (k && overAt(k, a.end) < now)          // today's hit is already over —
-      k = nextOccurrence(a, addDays(today, 1)) || k;  // jump to the next one
-    return k;
-  };
+  const now = nowStamp();
   const up = [], past = [];
   list.forEach(a => {
-    const k = keyOf(a);
-    (k && overAt(k, a.end) >= now ? up : past).push([k, a]);
+    const k = nextUpcoming(a);
+    (k && occOverAt(k, a.end) >= now ? up : past).push([k, a]);
   });
   up.sort((x, y) => x[0] < y[0] ? -1 : 1);
   past.sort((x, y) => x[0] > y[0] ? -1 : 1);
@@ -1102,7 +1108,7 @@ function orderedAppointments(list) {
 
 function apptRow(a) {
   const rec = recurLabel(a.recur, (a.when || "").slice(0, 10));
-  const shown = rec ? (nextOccurrence(a, todayIso()) || a.when) : a.when;
+  const shown = nextUpcoming(a) || a.when;  // same occurrence the sort judged by
   const sub = [a.location, rec].filter(Boolean).join("  ·  ");
   const row = listRow(a, "appointments", [
     el("span", "when", fmtWhenList(shown, a.end)),
