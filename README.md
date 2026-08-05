@@ -43,9 +43,9 @@ no build step, no `npm`, no dependencies for the app itself.
 five sections (number keys switch them):
 
 1. **today** — your daily glance, kept lean on purpose. the **coach line** (if set) sits at the very
-   top — one next move, stamped with its age. then appointments today, todos due/overdue (an overdue
-   one-off gets a one-tap **→ tmrw** snooze — busy days happen), and today's wins with a one-field
-   win logger. open this first each day.
+   top — one next move, stamped with its age. then what's **left** today (a timed appointment drops
+   off once it's over), tomorrow's appointments, and today's wins with a one-field win logger. todos
+   live on their own tab. open this first each day.
 2. **calendar** — month grid; click a day to see what's on it and add an appointment with the **full
    controls right there** (time, place, repeat, end-date) — no jumping to another page. colored
    marks: green = a win, blue = an appointment, yellow = a due todo, violet = a diary entry.
@@ -122,12 +122,15 @@ two pieces, both optional, both riding the same local files:
   looks stale. anything can write it — a script on a timer, typically an llm that read
   `whats_slipping` first: `python3 -c "import store; store.set_coach('close out the passport — it
   blocks the flights')"`. writing the same line twice is a no-op, so a timer never causes churn.
-- **the chat** — the "ask the coach" box on today (`c` focuses it). your message runs the
+- **the chat** — the coach box on today (`c` focuses it; enter sends, shift+enter newlines — dump
+  whole paragraphs at it). your message runs the
   [claude cli](https://claude.com/claude-code) headless with **only lifeplanner's
   mcp tools** — no shell, no file access, and no `delete_item` — so "push the dentist to thursday
   and log the win" actually edits your planner, and the worst it can ever do is add or reschedule.
-  needs the mcp install (above) plus the `claude` cli on the machine running the app. tune with
-  `LIFEPLANNER_COACH_TIMEOUT` / `LIFEPLANNER_CLAUDE_BIN`.
+  the coach **remembers**: every turn is kept (your message is saved before claude even runs), the
+  transcript follows you across devices, and a `remember` tool lets it keep durable facts about you
+  that feed every future prompt. needs the mcp install (above) plus the `claude` cli on the machine
+  running the app. tune with `LIFEPLANNER_COACH_TIMEOUT` / `LIFEPLANNER_CLAUDE_BIN`.
 
 with no directive set the line simply isn't there; with no `claude` cli a chat just answers
 "coach unavailable" — nothing else in the app depends on either.
