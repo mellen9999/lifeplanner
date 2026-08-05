@@ -414,16 +414,17 @@ function currentList() {
 // filters through here so the spam can't leak back in via one forgotten path.
 function visibleAppts() { return state.appointments.filter(a => !a.hidden); }
 
-// the appointments page's three groups, ONE definition shared by the renderer and
-// currentList so keyboard nav always lands on the row you see. hidden rows join
-// the nav list only while revealed (or while a search is on — a search should
-// always be able to find a muted appointment).
+// the appointments page's groups, ONE definition shared by the renderer and
+// currentList so keyboard nav always lands on the row you see. past (over and
+// done) rows are erased from the everyday view — like hidden ones they join
+// only while a search is on, so nothing is lost, just out of the way.
 function apptGroups() {
   const all = applySearch(state.appointments);
   const { up, past } = orderedAppointments(all.filter(a => !a.hidden));
   const h = orderedAppointments(all.filter(a => a.hidden));
   const hidAll = [...h.up, ...h.past];
-  return { up, past, hid: (showHidden || search) ? hidAll : [], hiddenCount: hidAll.length };
+  return { up, past: search ? past : [],
+           hid: (showHidden || search) ? hidAll : [], hiddenCount: hidAll.length };
 }
 
 // the unified life-log: diary entries + wins in one stream, each tagged with the
@@ -722,7 +723,6 @@ function editFields(entity, item) {
     { name: "date", type: "date", value: (item.when || "").slice(0, 10) },
     { name: "time", type: "time", value: timeOf(item.when) },
     { name: "endtime", type: "time", value: timeOf(item.end) },
-    { name: "location", ph: "where", value: item.location },
     { name: "repeat", type: "select", value: repeatValue(item.recur), options: REPEAT_OPTIONS },
     { name: "until", type: "date", value: (item.recur && item.recur.until) || "" },
   ];
@@ -745,8 +745,10 @@ function editFields(entity, item) {
 }
 
 function buildPatch(entity, v) {
+  // no location field — a stored location (e.g. synced from caldav) is simply
+  // left untouched by an edit, never wiped.
   if (entity === "appointments")
-    return { title: v.title, when: v.time ? `${v.date} ${v.time}` : v.date, end: v.endtime ? `${v.date} ${v.endtime}` : "", location: v.location, recur: parseRepeat(v.repeat, v.until) };
+    return { title: v.title, when: v.time ? `${v.date} ${v.time}` : v.date, end: v.endtime ? `${v.date} ${v.endtime}` : "", recur: parseRepeat(v.repeat, v.until) };
   if (entity === "achievements")
     return { title: v.title, date: v.date, note: v.note };
   if (entity === "journal")
@@ -1057,31 +1059,45 @@ function appointmentAddForm(defaultWhen) {
     { name: "when", type: "date", value: defaultWhen },
     { name: "time", type: "time" },
     { name: "endtime", type: "time", ph: "to" },
-    { name: "location", ph: "where (optional)" },
     { name: "repeat", type: "select", options: REPEAT_OPTIONS },
     { name: "until", type: "date" },
   ], d => add("appointments", {
     title: d.title, when: d.time ? `${d.when} ${d.time}` : d.when,
     end: d.endtime ? `${d.when} ${d.endtime}` : "",
-    location: d.location, recur: parseRepeat(d.repeat, d.until),
+    recur: parseRepeat(d.repeat, d.until),
   }));
 }
 
-// split appointments into upcoming (next occurrence today-or-later, soonest
-// first) and past (one-time, already gone, most recent first). recurring series
-// resolve to their next hit. ONE ordering, shared by the view + keyboard nav so
+// split appointments into upcoming (next occurrence not yet over, soonest
+// first) and past (already over, most recent first). time-aware: a 2–3pm appt
+// leaves upcoming at 3pm, not at midnight; a recurring series resolves to its
+// next un-finished hit. ONE ordering, shared by the view + keyboard nav so
 // j/k always lands on the row you see.
 function orderedAppointments(list) {
   const today = todayIso();
+  const d = new Date();
+  const now = `${today} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  // when an occurrence stops being upcoming: its end time, else its start time,
+  // else (all-day) the end of its day.
+  const overAt = (k, end) => {
+    const t = timeOf(k);
+    return t ? `${k.slice(0, 10)} ${timeOf(end) || t}` : `${k.slice(0, 10)} 23:59`;
+  };
   const keyOf = a => {
-    const rec = a.recur && a.recur.freq;
-    return (rec ? (nextOccurrence(a, today) || a.when) : a.when) || "";
+    if (!(a.recur && a.recur.freq)) return a.when || "";
+    let k = nextOccurrence(a, today) || a.when || "";
+    if (k && overAt(k, a.end) < now)          // today's hit is already over —
+      k = nextOccurrence(a, addDays(today, 1)) || k;  // jump to the next one
+    return k;
   };
   const up = [], past = [];
-  list.forEach(a => (keyOf(a) >= today ? up : past).push(a));
-  up.sort((x, y) => keyOf(x) < keyOf(y) ? -1 : 1);
-  past.sort((x, y) => keyOf(x) > keyOf(y) ? -1 : 1);
-  return { up, past };
+  list.forEach(a => {
+    const k = keyOf(a);
+    (k && overAt(k, a.end) >= now ? up : past).push([k, a]);
+  });
+  up.sort((x, y) => x[0] < y[0] ? -1 : 1);
+  past.sort((x, y) => x[0] > y[0] ? -1 : 1);
+  return { up: up.map(p => p[1]), past: past.map(p => p[1]) };
 }
 
 function apptRow(a) {
@@ -1129,7 +1145,7 @@ function toggleHiddenVisibility() {
 function renderAppointments() {
   const root = document.getElementById("appointments");
   clear(root);
-  const h = el("h2", "section-h", "appointments");
+  const h = el("h2", "section-h", "appts");
   h.appendChild(el("span", "count", `${state.appointments.length}`));
   h.appendChild(searchChip());
   root.appendChild(h);
@@ -1152,6 +1168,9 @@ function renderAppointments() {
     items.forEach(a => {
       const idx = i++;
       const row = apptRow(a);
+      // the very next appointment — first of upcoming — gets the accent so the
+      // answer to "what's next" is the top highlighted row.
+      if (idx === 0 && label === "upcoming" && a.id !== editing) row.classList.add("next");
       if (idx === sel && a.id !== editing) row.classList.add("sel");
       if (a.id !== editing) row.onclick = () => { sel = idx; render(); };
       list.appendChild(row);

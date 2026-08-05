@@ -49,10 +49,12 @@ five sections (number keys switch them):
 2. **calendar** — month grid; click a day to see what's on it and add an appointment with the **full
    controls right there** (time, place, repeat, end-date) — no jumping to another page. colored
    marks: green = a win, blue = an appointment, yellow = a due todo, violet = a diary entry.
-3. **appointments** — your agenda. add with a date (+ optional time) and place; set **repeat** (daily
-   / weekly / every-other-week / monthly, with an optional end date) to make it recur. the list is
-   grouped **upcoming** (soonest first, recurring series resolved to their next occurrence) and
-   **past** — the calendar marks every occurrence and your phone gets it as a standard repeating event.
+3. **appts** — your agenda, upcoming only: soonest first, the very next one highlighted, and an
+   appointment drops off at its end time (recurring series resolve to their next un-finished
+   occurrence). past ones aren't shown — search (`/`) still finds them. add with a date (+ optional
+   time); set **repeat** (daily / weekly / every-other-week / monthly, with an optional end date) to
+   make it recur — the calendar marks every occurrence and your phone gets it as a standard
+   repeating event.
    a spammy series (say, a daily alarm synced in from the phone) can be **muted** (`m`): it disappears
    from the calendar, today, reminders and the `.ics` feed without being deleted — `M` shows the
    hidden pile, and a caldav server copy is never touched.

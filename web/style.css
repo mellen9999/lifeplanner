@@ -134,6 +134,10 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .row:hover .muted, .row.sel .muted,
 .row:hover .when, .row.sel .when { color: var(--inv-fg); }
 .row .when { color: var(--muted); flex: 0 0 auto; min-width: 116px; font-variant-numeric: tabular-nums; }
+/* the very next appointment — accent edge + accent time, "what's next" at a glance */
+.row.next { border-left: 2px solid var(--accent); padding-left: 8px; }
+.row.next .when { color: var(--accent); }
+.row.next:hover .when, .row.next.sel .when { color: var(--inv-fg); }
 .row .body { flex: 1 1 auto; min-width: 0; }
 /* a long unbroken title (e.g. a pasted url) must wrap, not overflow the row */
 .row .title, .row .body { overflow-wrap: anywhere; }
