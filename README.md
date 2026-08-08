@@ -61,10 +61,9 @@ five sections (number keys switch them):
 4. **todos** — things to do; give one a due date and it becomes a reminder on the calendar + phone.
    each todo carries a **colour by deadline pressure**: red = due today / overdue, yellow = due soon
    (within ~3 days), calm green = plenty of time or no date — so the most urgent thing is obvious at a
-   glance, and the top of the list is literally what to do next. the page keeps a **7-day horizon** —
-   what's due inside a week (overdue included) plus routines, urgency-sorted; anything further out or
-   undated collapses into one `N later` line you open with `L`, so the page is this week, not your whole
-   backlog. filtering (`/`) always searches the full list. set **repeat** to make a todo a daily/weekly **routine** (eat lunch, workout, meds) — it
+   glance, and the top of the list is literally what to do next. the page keeps a **7-day horizon** — due
+   this week (overdue included) plus routines; everything further out or undated collapses to one `N later`
+   line, opened with `L`. filtering (`/`) still searches the lot. set **repeat** to make a todo a daily/weekly **routine** (eat lunch, workout, meds) — it
    shows up every day in "todos due", ticked off per-day so it's back tomorrow; routines never count as
    "overdue" (a missed day is just a day).
 5. **journal** — the life-log: **diary entries and wins on one timeline**, newest day first. write

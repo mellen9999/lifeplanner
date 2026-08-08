@@ -466,11 +466,9 @@ function sortedTodos() {
     (a.done - b.done) || ((a.due || "9999") > (b.due || "9999") ? 1 : -1));
 }
 
-// the horizon: how far ahead the todos page looks by default. a task is "now" if
-// it's already due (overdue included — never bury a deadline you missed), lands
-// inside the next week, or is a routine (routines are the daily rhythm, not a
-// deadline). anything further out or undated is "later" — real work, just not
-// this week's, so it sits in one collapsed line instead of on the page.
+// the horizon: "now" is due within a week (overdue included — never bury a missed
+// deadline) or a routine. further out and undated is "later" — real work, just not
+// this week's, so it collapses to one line instead of filling the page.
 const HORIZON_DAYS = 7;
 function todoIsNow(t) {
   if (t.recur) return true;
@@ -1227,8 +1225,8 @@ function renderAppointments() {
   root.appendChild(body);
 }
 
-// a collapsed-pile count in the section header — "· 12 later ▸". clicking (or the
-// hotkey) expands it inline. shared by the later and done piles.
+// a collapsed-pile count in the section header — "· 12 later ▸". click or hotkey
+// expands it inline. shared by the later and done piles.
 function pileChip(n, label, open, onToggle, key) {
   const c = el("span", "count toggle-done", `· ${n} ${label} ${open ? "▾" : "▸"}`);
   c.setAttribute("role", "button");
@@ -1277,7 +1275,7 @@ function renderTodos() {
     if (t.recur) row.dataset.routine = "1";
     return row;
   }, later && !showLater
-    ? `nothing due in the next ${HORIZON_DAYS} days. ${later} later — press L.`
+    ? `nothing due this week · ${later} later (L)`
     : "nothing to do. press n to add.");
   const listEl = body.querySelector(".list");
   if (listEl) makeRoutinesSortable(listEl);
