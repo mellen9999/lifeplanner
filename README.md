@@ -61,9 +61,10 @@ five sections (number keys switch them):
 4. **todos** — things to do; give one a due date and it becomes a reminder on the calendar + phone.
    each todo carries a **colour by deadline pressure**: red = due today / overdue, yellow = due soon
    (within ~3 days), calm green = plenty of time or no date — so the most urgent thing is obvious at a
-   glance, and the top of the list is literally what to do next. **today** shows only what's actionable
-   now (a far-future deadline stays parked off today until it nears); the **todos page** shows everything,
-   urgency-sorted. set **repeat** to make a todo a daily/weekly **routine** (eat lunch, workout, meds) — it
+   glance, and the top of the list is literally what to do next. the page keeps a **7-day horizon** —
+   what's due inside a week (overdue included) plus routines, urgency-sorted; anything further out or
+   undated collapses into one `N later` line you open with `L`, so the page is this week, not your whole
+   backlog. filtering (`/`) always searches the full list. set **repeat** to make a todo a daily/weekly **routine** (eat lunch, workout, meds) — it
    shows up every day in "todos due", ticked off per-day so it's back tomorrow; routines never count as
    "overdue" (a missed day is just a day).
 5. **journal** — the life-log: **diary entries and wins on one timeline**, newest day first. write
@@ -88,7 +89,7 @@ nothing needs saving — it's written to disk the moment you add it.
 | `c` | talk to the coach | | `e` / dbl-click | edit selected |
 | `j` / `k` | move selection (lists) | | `enter` | save edit / open day |
 | `x` | toggle todo done | | `d` `d` | delete selected |
-| `X` | todos: show / hide done | | `u` | undo last delete |
+| `X` / `L` | todos: show / hide done · later | | `u` | undo last delete |
 | `m` / `M` | mute appointment · hidden pile | | `/` | filter the current list |
 | `t` · `r` · `?` | theme · refresh · help | | `esc` | cancel / close |
 
