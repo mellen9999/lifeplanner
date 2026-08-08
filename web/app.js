@@ -32,6 +32,8 @@ let armedDelete = null;       // id of the row whose × is armed; needs a 2nd cl
 let armedTimer = null;        // auto-disarm so a stale armed × can't linger
 let showDone = false;         // todos: reveal the collapsed "done" pile
 try { showDone = localStorage.getItem("lp-show-done") === "1"; } catch {}
+let showLater = false;        // todos: reveal the collapsed "later" pile (beyond the horizon)
+try { showLater = localStorage.getItem("lp-show-later") === "1"; } catch {}
 let showHidden = false;       // appointments: reveal the collapsed "hidden" pile
 try { showHidden = localStorage.getItem("lp-show-hidden") === "1"; } catch {}
 let lastDeleted = null;       // {entity, item} for single-level undo
@@ -209,6 +211,7 @@ function orderedTodos() {
   // then due. manual order is what gives routines a logical day-sequence.
   return applySearch(visibleTodos()).slice().sort((a, b) =>
     ((a.done ? 1 : 0) - (b.done ? 1 : 0))
+    || ((todoIsNow(a) ? 0 : 1) - (todoIsNow(b) ? 0 : 1))  // expanded "later" sits below "now"
     || (URG_RANK[todoUrgency(a)] - URG_RANK[todoUrgency(b)])
     || ((a.order || 1e9) - (b.order || 1e9))
     || ((a.due || "9999") > (b.due || "9999") ? 1 : -1));
@@ -463,11 +466,27 @@ function sortedTodos() {
     (a.done - b.done) || ((a.due || "9999") > (b.due || "9999") ? 1 : -1));
 }
 
-// what the todos list actually shows: active always, the done pile only when
-// expanded. done stays sorted to the bottom so the active/done boundary is clean.
+// the horizon: how far ahead the todos page looks by default. a task is "now" if
+// it's already due (overdue included — never bury a deadline you missed), lands
+// inside the next week, or is a routine (routines are the daily rhythm, not a
+// deadline). anything further out or undated is "later" — real work, just not
+// this week's, so it sits in one collapsed line instead of on the page.
+const HORIZON_DAYS = 7;
+function todoIsNow(t) {
+  if (t.recur) return true;
+  if (!t.due) return false;
+  return dayDiff(todayIso(), t.due) <= HORIZON_DAYS;
+}
+
+// what the todos list actually shows: the horizon always, the later and done
+// piles only when expanded. done stays sorted to the bottom so the active/done
+// boundary is clean.
 function visibleTodos() {
-  const all = sortedTodos();
-  return showDone ? all : all.filter(t => !t.done);
+  // a live filter searches the whole list — the horizon is a default view, not a
+  // place things can hide from you.
+  const later = showLater || !!search;
+  return sortedTodos().filter(t =>
+    (t.done ? showDone : (later || todoIsNow(t))));
 }
 
 // ---- render -----------------------------------------------------------------
@@ -1208,24 +1227,30 @@ function renderAppointments() {
   root.appendChild(body);
 }
 
+// a collapsed-pile count in the section header — "· 12 later ▸". clicking (or the
+// hotkey) expands it inline. shared by the later and done piles.
+function pileChip(n, label, open, onToggle, key) {
+  const c = el("span", "count toggle-done", `· ${n} ${label} ${open ? "▾" : "▸"}`);
+  c.setAttribute("role", "button");
+  c.setAttribute("aria-expanded", open ? "true" : "false");
+  c.tabIndex = 0;
+  c.title = `${open ? "hide" : "show"} ${label} (${key})`;
+  c.onclick = onToggle;
+  c.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } };
+  return c;
+}
+
 function renderTodos() {
   const root = document.getElementById("todos");
   clear(root);
-  const open = state.todos.filter(t => !t.done).length;
-  const done = state.todos.length - open;
+  const undone = state.todos.filter(t => !t.done);
+  const now = undone.filter(todoIsNow).length;
+  const later = undone.length - now;
+  const done = state.todos.length - undone.length;
   const h = el("h2", "section-h", "todos / reminders");
-  h.appendChild(el("span", "count", `${open} open`));
-  if (done) {
-    const toggle = el("span", "count toggle-done",
-      `· ${done} done ${showDone ? "▾" : "▸"}`);
-    toggle.setAttribute("role", "button");
-    toggle.setAttribute("aria-expanded", showDone ? "true" : "false");
-    toggle.tabIndex = 0;
-    toggle.title = showDone ? "hide completed (X)" : "show completed (X)";
-    toggle.onclick = toggleDoneVisibility;
-    toggle.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleDoneVisibility(); } };
-    h.appendChild(toggle);
-  }
+  h.appendChild(el("span", "count", `${now} now`));
+  if (later) h.appendChild(pileChip(later, "later", showLater, toggleLaterVisibility, "L"));
+  if (done) h.appendChild(pileChip(done, "done", showDone, toggleDoneVisibility, "X"));
   h.appendChild(searchChip());
   root.appendChild(h);
   root.appendChild(addRow([
@@ -1251,7 +1276,9 @@ function renderTodos() {
     if (!t.done) row.classList.add("urg-" + todoUrgency(t));
     if (t.recur) row.dataset.routine = "1";
     return row;
-  }, "nothing to do. press n to add.");
+  }, later && !showLater
+    ? `nothing due in the next ${HORIZON_DAYS} days. ${later} later — press L.`
+    : "nothing to do. press n to add.");
   const listEl = body.querySelector(".list");
   if (listEl) makeRoutinesSortable(listEl);
   root.appendChild(body);
@@ -1621,7 +1648,8 @@ document.addEventListener("keydown", (e) => {
     case "h": if (view === "calendar") moveCalDay(-1); break;   // prev day (crosses months)
     case "l": if (view === "calendar") moveCalDay(1); break;    // next day (crosses months)
     case "H": if (view === "calendar") shiftMonth(-1); break;   // jump a whole month back
-    case "L": if (view === "calendar") shiftMonth(1); break;    // jump a whole month forward
+    case "L": if (view === "calendar") shiftMonth(1);           // jump a whole month forward
+      else if (view === "todos") toggleLaterVisibility(); break;
     case "x": toggleSelTodo(); break;
     case "X": if (view === "todos") toggleDoneVisibility(); break;
     case "m": toggleSelHidden(); break;
@@ -1657,6 +1685,13 @@ function moveCalDay(delta) {
 function toggleDoneVisibility() {
   showDone = !showDone; sel = -1;
   try { localStorage.setItem("lp-show-done", showDone ? "1" : "0"); } catch {}
+  render();
+}
+
+// show/hide the collapsed "later" pile — everything past the horizon (header chip + L).
+function toggleLaterVisibility() {
+  showLater = !showLater; sel = -1;
+  try { localStorage.setItem("lp-show-later", showLater ? "1" : "0"); } catch {}
   render();
 }
 
