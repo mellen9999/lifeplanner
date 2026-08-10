@@ -295,7 +295,16 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .cc-msg { font-size: 13px; line-height: 1.45; padding: 5px 9px; border: 1px solid var(--line); overflow-wrap: anywhere; }
 .cc-msg.you { border-left: 2px solid var(--muted); color: var(--muted); }
 .cc-msg.coach { border-left: 2px solid var(--accent); white-space: pre-wrap; }
+.cc-msg.system { border-left-color: var(--line); color: var(--muted); font-size: 12px; }
 .cc-pending { color: var(--muted); }
+/* the coach's saved memory — collapsed count chip, dense deletable rows */
+.coach-mem-chip { display: inline-block; margin-top: 8px; }
+.coach-mem { margin-top: 6px; }
+.cm-row { display: flex; gap: 8px; align-items: baseline; padding: 3px 0;
+  border-bottom: 1px solid var(--line); font-size: 13px; }
+.cm-row:last-of-type { border-bottom: none; }
+.cm-date { color: var(--muted); font-size: 11px; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.cm-note { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .coach-ask { display: flex; gap: 6px; margin-top: 9px; align-items: flex-end; }
 .coach-ask textarea { flex: 1 1 auto; font: inherit; background: var(--field); color: var(--fg);
   border: 1px solid var(--line); padding: 6px 8px; border-radius: 0;
@@ -306,38 +315,6 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
   border: 1px solid var(--fg); padding: 6px 14px; cursor: pointer; }
 .coach-ask button:hover:not(:disabled) { background: var(--inv-bg); color: var(--inv-fg); }
 .coach-ask button:disabled { opacity: .5; cursor: default; }
-
-/* streak ribbon */
-.ribbon { display: flex; gap: 10px; margin: 12px 0; flex-wrap: wrap; }
-.stat { border: 1px solid var(--line); padding: 8px 14px; min-width: 84px; }
-.stat-n { font-size: 22px; font-variant-numeric: tabular-nums; color: var(--accent); line-height: 1; }
-.stat-n.risk { color: var(--todo); }   /* exposed — log a win today or it resets */
-.stat-l { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-top: 4px; }
-/* arcade shield pips — filled = a banked life, square + green (semantic: alive) */
-.pips { display: flex; gap: 3px; margin-top: 6px; }
-.pip { width: 9px; height: 9px; border: 1px solid var(--line); }
-.pip.on { background: var(--ach); border-color: var(--ach); }
-
-/* achievement heatmap — square, green scale (semantic for wins) */
-.heatmap { overflow-x: auto; padding-bottom: 4px; margin-bottom: 14px; }
-.hm-grid { display: flex; gap: 3px; }
-.hm-col { display: flex; flex-direction: column; gap: 3px; }
-.hm { width: 12px; height: 12px; border: 1px solid var(--line); }
-.hm.lvl1 { background: #00875f; border-color: #00875f; }
-.hm.lvl2 { background: #00d75f; border-color: #00d75f; }
-.hm.lvl3 { background: #5fffaf; border-color: #5fffaf; }
-.hm.future { opacity: .2; }
-.hm.pad { visibility: hidden; }   /* days outside the year — keep the grid aligned */
-/* year nav + month labels for the full-year heatmap */
-.hm-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.hm-nav { font: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--line);
-  padding: 2px 9px; cursor: pointer; border-radius: 0; }
-.hm-nav:hover:not(:disabled) { background: var(--inv-bg); color: var(--inv-fg); }
-.hm-nav:disabled { opacity: .3; cursor: default; }
-.hm-year { font-variant-numeric: tabular-nums; min-width: 3ch; }
-.hm-total { color: var(--muted); font-size: 12px; }
-.hm-months { display: flex; gap: 3px; margin-bottom: 3px; height: 13px; }
-.hm-mlabel { width: 12px; font-size: 10px; color: var(--muted); white-space: nowrap; overflow: visible; }
 
 /* ---- sync banner (honest staleness) ---- */
 #syncbar {

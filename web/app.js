@@ -24,7 +24,6 @@ let sel = -1;                 // selected list index in current section
 let editing = null;           // id of the item being edited inline
 let calCursor = startOfMonth(new Date());
 let selDay = iso(new Date()); // selected calendar day
-let hmYear = new Date().getFullYear();  // which year the wins heatmap shows
 let logFilter = "all";        // journal timeline: "all" (entries + wins) | "wins"
 let logIsWin = false;         // journal composer mode: false = entry, true = ★ win
 let pendingDelete = false;    // first 'd' of 'dd'
@@ -40,8 +39,10 @@ let lastDeleted = null;       // {entity, item} for single-level undo
 let search = "";              // active filter query ("" = off)
 let searchOpen = false;       // filter bar visible
 let coachPending = "";        // message in flight (shown until the server echoes it back)
-let coachError = "";          // transient error from the last turn (never persisted)
+let coachError = "";          // transport-level failure only (turn errors persist as system markers)
 let coachBusy = false;        // a coach turn is in flight (locks the input)
+let showCoachMem = false;     // coach box: reveal the collapsed memory notes
+try { showCoachMem = localStorage.getItem("lp-show-mem") === "1"; } catch {}
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -292,7 +293,7 @@ async function deleteWithUndo(entity, item) {
 // a short human label for any item — title for most, the first line of the body
 // for a diary entry (which has no title). used in the delete/undo toast.
 function itemLabel(item) {
-  const s = item.title || (item.body || "").split("\n")[0];
+  const s = item.title || item.note || (item.body || "").split("\n")[0];
   return s.length > 40 ? s.slice(0, 40) + "…" : (s || "entry");
 }
 function undoDelete() {
@@ -817,14 +818,49 @@ function renderCoach() {
   if (turns.length || coachBusy || coachError) {
     const log = el("div", "coach-chat");
     turns.forEach(m => {
-      const b = el("div", "cc-msg " + (m.role === "you" ? "you" : "coach"));
-      b.textContent = m.text;
+      // "system" = a failed turn, persisted so the message above it never reads
+      // as silently answered — rendered dim, clearly not a coach reply.
+      const cls = m.role === "you" ? "you" : m.role === "system" ? "coach system" : "coach";
+      const b = el("div", "cc-msg " + cls);
+      b.textContent = m.role === "system" ? `(${m.text})` : m.text;
+      if (m.clipped) b.appendChild(el("div", "sub", "(cut at 64k chars)"));
       log.appendChild(b);
     });
     if (coachBusy) log.appendChild(el("div", "cc-msg coach cc-pending", "thinking…"));
     if (coachError) log.appendChild(el("div", "cc-msg coach cc-pending", `(${coachError})`));
     box.appendChild(log);
-    log.scrollTop = log.scrollHeight;  // pinned to the latest turn
+    // pin to the latest turn — after attach (scrollHeight is 0 pre-DOM), via a
+    // timeout not rAF: rAF never fires in a hidden tab, and the poller repaints
+    // there too.
+    setTimeout(() => { log.scrollTop = log.scrollHeight; }, 0);
+  }
+
+  // what the coach knows — the saved memory notes, collapsed to a count so the
+  // box stays dense. visible + deletable here: trust needs to be inspectable.
+  const mem = c.memory || [];
+  if (mem.length) {
+    const chip = pileChip(mem.length, "memory", showCoachMem, () => {
+      showCoachMem = !showCoachMem;
+      try { localStorage.setItem("lp-show-mem", showCoachMem ? "1" : "0"); } catch {}
+      render();
+    }, "click");
+    chip.classList.add("coach-mem-chip");
+    box.appendChild(chip);
+    if (showCoachMem) {
+      const list = el("div", "coach-mem");
+      mem.forEach(n => {
+        const row = el("div", "cm-row");
+        row.appendChild(el("span", "cm-date", n.date || ""));
+        row.appendChild(el("span", "cm-note", n.note));
+        const armed = armedDelete === n.id;
+        const del = el("span", "del" + (armed ? " armed" : ""), armed ? "delete?" : "×");
+        del.title = armed ? "click again to forget" : "forget this";
+        del.onclick = (e) => { e.stopPropagation(); armDelete("coach/memory", n); };
+        row.appendChild(del);
+        list.appendChild(row);
+      });
+      box.appendChild(list);
+    }
   }
 
   // brain-dump friendly: a growing textarea — enter sends, shift+enter newlines.
@@ -858,153 +894,17 @@ async function coachSend(text) {
   render();
   try {
     const r = await api("POST", "/api/coach/chat", { message: text });
-    if (r.error) coachError = r.error;
+    // a turn-level error is persisted server-side as a system marker and will
+    // arrive with the refresh — showing it here too would double it up.
+    if (r.clipped) toast("message cut at 64,000 chars");
   } catch (e) {
-    coachError = e.message;
+    coachError = e.message;  // transport failure — nothing persisted, so say it
   }
   coachBusy = false;
   coachPending = "";
   await refresh();          // repaints with the persisted transcript
   const inp = document.getElementById("coach-input");
   if (inp) inp.focus();
-}
-
-// ---- achievements heatmap + streaks ----------------------------------------
-
-function winCounts() {
-  const m = {};
-  state.achievements.forEach(a => { if (a.date) m[a.date] = (m[a.date] || 0) + 1; });
-  return m;
-}
-
-// arcade streak — honest, no hidden saves. each logged day extends the streak
-// and every 7th banks a "shield" (max 3, you start a run with 1). a missed day
-// spends a shield to bridge the gap so the streak lives on; miss with zero
-// shields and it's GAME OVER — the streak resets to 0. today not logged yet is
-// grace (the day isn't over), flagged at-risk when it's your last life.
-const STREAK_START = 1, STREAK_EARN = 7, STREAK_MAX = 3;
-function arcadeStreak(counts) {
-  const today = todayIso();
-  const keys = Object.keys(counts).filter(d => d <= today).sort();
-  if (!keys.length) return { streak: 0, lives: 0, max: 0, atRisk: false };
-  // walk the logged days (O(wins)), bridging the gaps between them in one step
-  // each — not day-by-day from the first win to today (which was O(days)).
-  let streak = 0, lives = 0, inRun = 0, longest = 0;
-  const win = () => {
-    if (streak === 0) lives = STREAK_START;     // a fresh run gets its starter shield
-    streak++; inRun++;
-    if (inRun % STREAK_EARN === 0) lives = Math.min(STREAK_MAX, lives + 1);
-    if (streak > longest) longest = streak;
-  };
-  const miss = (gap) => {                        // `gap` consecutive missed days
-    if (gap <= 0 || streak === 0) return;        // once reset, more misses are no-ops
-    if (gap <= lives) lives -= gap;              // shields bridge the gap
-    else { streak = 0; inRun = 0; lives = 0; }   // out of shields → game over
-  };
-  win();  // keys[0]: the first logged day
-  for (let i = 1; i < keys.length; i++) {
-    miss(dayDiff(keys[i - 1], keys[i]) - 1);     // missed days strictly between
-    win();
-  }
-  miss(dayDiff(keys[keys.length - 1], today) - 1);  // trailing gap; today unlogged = grace
-  const atRisk = !counts[today] && streak > 0 && lives === 0;
-  return { streak, lives, max: longest, atRisk };
-}
-
-function streakRibbon() {
-  const counts = winCounts();
-  const ribbon = el("div", "ribbon");
-  const s = arcadeStreak(counts);
-  const t = todayIso();
-  const week = state.achievements.filter(a => a.date > addDays(t, -7) && a.date <= t).length;
-  ribbon.append(
-    streakStat(s),
-    stat(s.max, "longest"),
-    stat(week, "this week"),
-    stat(state.achievements.length, "total wins"),
-  );
-  return ribbon;
-}
-
-// the streak stat carries the arcade HUD: number (yellow when at-risk) + a row
-// of shield pips (filled = banked lives) so the grace is always visible, never hidden.
-function streakStat(s) {
-  const box = el("div", "stat");
-  const n = el("div", "stat-n" + (s.atRisk ? " risk" : ""), String(s.streak));
-  box.appendChild(n);
-  box.appendChild(el("div", "stat-l", "day streak"));
-  const pips = el("div", "pips");
-  for (let i = 0; i < STREAK_MAX; i++) pips.appendChild(el("div", "pip" + (i < s.lives ? " on" : "")));
-  pips.title = `${s.lives} of ${STREAK_MAX} shields — a shield saves one missed day; earn one every ${STREAK_EARN} days`;
-  box.appendChild(pips);
-  box.title = s.atRisk
-    ? "at risk — no shields left. log a win today or the streak resets."
-    : "streak survives a missed day by spending a shield. out of shields + a miss = reset.";
-  return box;
-}
-function stat(n, label) {
-  const s = el("div", "stat");
-  s.appendChild(el("div", "stat-n", String(n)));
-  s.appendChild(el("div", "stat-l", label));
-  return s;
-}
-
-// a full calendar-year wins heatmap you can page back through, year by year — so
-// the whole history is visible forever, not just a rolling 6-month window. data is
-// kept indefinitely, so any past year graphs exactly as it happened.
-function renderHeatmap() {
-  const counts = winCounts();
-  const today = new Date();
-  const curYear = today.getFullYear();
-  const wrap = el("div", "heatmap");
-
-  // ◀ year ▶ + that year's total
-  let yearTotal = 0;
-  for (const ds in counts) if (ds.slice(0, 4) === String(hmYear)) yearTotal += counts[ds];
-  const head = el("div", "hm-head");
-  const prev = el("button", "hm-nav", "◀"); prev.title = "previous year";
-  prev.onclick = () => { hmYear--; render(); };
-  const next = el("button", "hm-nav", "▶"); next.title = "next year";
-  next.disabled = hmYear >= curYear;
-  next.onclick = () => { if (hmYear < curYear) { hmYear++; render(); } };
-  head.append(prev, el("span", "hm-year", String(hmYear)), next,
-    el("span", "hm-total", `${yearTotal} win${yearTotal === 1 ? "" : "s"}`));
-  wrap.appendChild(head);
-
-  // columns = weeks (mon–sun) spanning jan 1 → dec 31 of hmYear; days outside the
-  // year are padding so the calendar lines up. a month-label row sits on top.
-  const jan1 = new Date(hmYear, 0, 1);
-  const start = new Date(jan1);
-  start.setDate(jan1.getDate() - ((jan1.getDay() + 6) % 7)); // back to that week's monday
-  const dec31 = new Date(hmYear, 11, 31);
-  const months = el("div", "hm-months");
-  const grid = el("div", "hm-grid");
-  let lastMonth = -1;
-  for (let wk = 0; ; wk++) {
-    const colStart = new Date(start); colStart.setDate(start.getDate() + wk * 7);
-    if (colStart > dec31) break;
-    const lbl = el("div", "hm-mlabel");
-    if (colStart.getFullYear() === hmYear && colStart.getMonth() !== lastMonth) {
-      lbl.textContent = MONTHS[colStart.getMonth()].slice(0, 3); lastMonth = colStart.getMonth();
-    }
-    months.appendChild(lbl);
-    const col = el("div", "hm-col");
-    for (let dN = 0; dN < 7; dN++) {
-      const dt = new Date(colStart); dt.setDate(colStart.getDate() + dN);
-      if (dt.getFullYear() !== hmYear) { col.appendChild(el("div", "hm pad")); continue; }
-      const ds = iso(dt);
-      const c = counts[ds] || 0;
-      const cell = el("div", "hm lvl" + Math.min(3, c));
-      if (dt > today) cell.classList.add("future");
-      cell.title = `${ds}: ${c} win${c === 1 ? "" : "s"}`;
-      col.appendChild(cell);
-    }
-    grid.appendChild(col);
-  }
-  wrap.setAttribute("role", "img");
-  wrap.setAttribute("aria-label", `wins in ${hmYear}: ${yearTotal} total`);
-  wrap.append(months, grid);
-  return wrap;
 }
 
 // ---- appointments / achievements / todos -----------------------------------
@@ -1226,8 +1126,8 @@ function renderTodos() {
 
 // ---- journal ----------------------------------------------------------------
 
-// the life-log: one timeline of diary entries + wins, with the wins' analytics
-// (streak + heatmap) up top as the highlight-reel lens over the same stream.
+// the life-log: one timeline of diary entries + wins. fundamentals only —
+// write up top, read below.
 function renderJournal() {
   const root = document.getElementById("journal");
   clear(root);
@@ -1238,9 +1138,6 @@ function renderJournal() {
   h.appendChild(logFilterChip());
   h.appendChild(searchChip());
   root.appendChild(h);
-  // wins analytics — the streak HUD + year heatmap track the ★ subset of the log.
-  root.appendChild(streakRibbon());
-  root.appendChild(renderHeatmap());
   // one capture surface: write an entry, or flip ★ to log it as a win instead.
   root.appendChild(logComposer());
 

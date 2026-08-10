@@ -7,14 +7,12 @@ like claude. no accounts, no cloud, no tracking. your data never leaves your mac
 
 ![the month calendar — appointments, due todos, and logged wins on one grid, with a day panel](docs/calendar.png)
 
-![the journal — diary entries and wins on one timeline, with the contribution heatmap and streak](docs/journal.png)
-
 - **stdlib-only web app** — python 3.8+, no dependencies. clone and run.
 - **square, terminal-styled ui** — light + dark, eight accent colors, keyboard-first (vim keys).
 - **routines** — todos can repeat (daily/weekly); a routine like "workout" shows every day and is ticked off per-day, so it's back tomorrow.
-- **one life-log** — diary entries and wins share a single timeline, with a contribution heatmap and
-  an honest arcade streak. log many entries a day, backdate a memory, and a nightly nudge reminds you
-  to write. private — never leaves your disk, never touches the calendar feed.
+- **one life-log** — diary entries and wins share a single timeline. log many entries a day,
+  backdate a memory, and a nightly nudge reminds you to write. private — never leaves your disk,
+  never touches the calendar feed.
 - **works on your phone** — installable PWA over your private network; optional `.ics` / caldav export if you'd rather see appointments in a native calendar app.
 - **mcp server** — let an assistant log your wins, add todos, flag what's slipping, and review your week (one optional dep).
 - **a coach, if you want one** — a next-move line beside the calendar, and a chat box whose answers
@@ -65,10 +63,7 @@ four sections (number keys switch them):
 4. **journal** — the life-log: **diary entries and wins on one timeline**, newest day first. write
    what happened in a free-text entry stamped to the moment (log as many as you like a day), or flip
    the **★ win** toggle to log it as a win; filter the stream to **all** or **wins only**, and search
-   it. set a date to **backdate a memory** (something from last week, or years ago). up top, a
-   **contribution heatmap** + an honest, arcade-style streak: each day with a win extends it and every
-   7th banks a **shield** (max 3); a missed day spends a shield to keep the run alive, but miss with
-   no shields left and the streak resets to 0 — the shields are shown so the grace is never hidden.
+   it. set a date to **backdate a memory** (something from last week, or years ago).
    entries never go on the calendar feed or your phone; they're yours to look back on. a **nightly
    nudge** ("what happened today?") reminds you to write, and stays quiet on days you already have.
 
@@ -104,9 +99,11 @@ then has these tools, all writing to the same local files the web app reads:
 partner: `whats_slipping` (what needs attention now) · `review_period` (how the last N days went) ·
 `get_stats`
 read: `get_overview` · `get_day` · `get_week` · `get_range` · `list_achievements` ·
-`list_todos` · `list_appointments` · `list_journal`
+`list_todos` · `list_appointments` · `list_journal` · `get_coach_chat` (the full coach transcript) ·
+`list_memory`
 write: `add_achievement` · `add_todo` · `complete_todo` · `add_appointment` · `add_journal` ·
-`update_achievement` · `update_todo` · `update_appointment` · `update_journal` · `delete_item`
+`update_achievement` · `update_todo` · `update_appointment` · `update_journal` · `delete_item` ·
+`remember` · `forget`
 
 (wins are stored as the `achievements` entity — same thing, older name.) writes from the assistant
 appear in your open ui within a few seconds; your edits are visible to it immediately. (works with
@@ -125,9 +122,12 @@ two pieces, both optional, both riding the same local files:
   [claude cli](https://claude.com/claude-code) headless with **only lifeplanner's
   mcp tools** — no shell, no file access, and no `delete_item` — so "push the dentist to thursday
   and log the win" actually edits your planner, and the worst it can ever do is add or reschedule.
-  the coach **remembers**: every turn is kept (your message is saved before claude even runs), the
-  transcript follows you across devices, and a `remember` tool lets it keep durable facts about you
-  that feed every future prompt. needs the mcp install (above) plus the `claude` cli on the machine
+  the coach **remembers**: every turn is kept in full (your message is saved to disk before claude
+  even runs — a failed turn leaves a visible marker, never a silent gap), the transcript follows you
+  across devices and is readable by **any** mcp client via `get_coach_chat`, and a `remember` tool
+  lets it keep durable facts about you that feed every future prompt. what it knows is **inspectable**:
+  the memory notes show under the chat (collapsed count, expandable, deletable — `forget` does the
+  same from an assistant). needs the mcp install (above) plus the `claude` cli on the machine
   running the app. tune with `LIFEPLANNER_COACH_TIMEOUT` / `LIFEPLANNER_CLAUDE_BIN`.
 
 with no directive set the line simply isn't there; with no `claude` cli a chat just answers
