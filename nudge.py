@@ -144,6 +144,13 @@ def review_text(rv):
 # happened, written into the journal itself. yesterday is always re-checked, so a
 # night the machine was down still gets backfilled the next run.
 
+# a diary line wants the gist, not the whole working brief — some todo titles
+# carry pages of claude-staged instructions that would wall-of-text the entry.
+def _gist(s, n=60):
+    s = (s or "").split("\n")[0].strip()
+    return s if len(s) <= n else s[:n].rstrip() + "…"
+
+
 def autojournal_text(day_iso):
     """one diary entry's worth of facts for a day, or '' when nothing happened
     (an empty day gets silence, never a fabricated entry)."""
@@ -153,16 +160,16 @@ def autojournal_text(day_iso):
     appts = []
     for a in d["appointments"]:
         w = a.get("when", "")
-        appts.append(f'{a.get("title", "")} {w[11:16] if len(w) > 10 else ""}'.strip())
+        appts.append(f'{_gist(a.get("title", ""))} {w[11:16] if len(w) > 10 else ""}'.strip())
     if appts:
         lines.append("appts: " + ", ".join(appts))
-    done = [t.get("title", "") for t in todos
+    done = [_gist(t.get("title", "")) for t in todos
             if not t.get("recur") and (t.get("done_at") or "") == day_iso]
     if done:
         lines.append("done: " + ", ".join(done))
-    hit = [t.get("title", "") for t in todos
+    hit = [_gist(t.get("title", "")) for t in todos
            if t.get("recur") and day_iso in (t.get("done_dates") or [])]
-    missed = [t.get("title", "") for t in todos
+    missed = [_gist(t.get("title", "")) for t in todos
               if t.get("recur") and store.todo_occurrences(t, day_iso, day_iso)
               and day_iso not in (t.get("done_dates") or [])]
     if hit or missed:
@@ -170,7 +177,7 @@ def autojournal_text(day_iso):
         if missed:
             s += " · missed: " + ", ".join(missed)
         lines.append(s)
-    wins = [a.get("title", "") for a in d["achievements"]]
+    wins = [_gist(a.get("title", "")) for a in d["achievements"]]
     if wins:
         lines.append("wins: " + ", ".join(wins))
     return "auto log\n" + "\n".join(lines) if lines else ""
