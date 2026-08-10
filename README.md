@@ -5,8 +5,6 @@ llm can read and write too. one set of plain json files on your disk, two doors 
 vanilla web ui for you, and an [mcp](https://modelcontextprotocol.io) server for an assistant
 like claude. no accounts, no cloud, no tracking. your data never leaves your machine.
 
-![the today view — the coach's next move up top, then appointments, todos due, and today's wins](docs/today.png)
-
 ![the month calendar — appointments, due todos, and logged wins on one grid, with a day panel](docs/calendar.png)
 
 ![the journal — diary entries and wins on one timeline, with the contribution heatmap and streak](docs/journal.png)
@@ -19,7 +17,7 @@ like claude. no accounts, no cloud, no tracking. your data never leaves your mac
   to write. private — never leaves your disk, never touches the calendar feed.
 - **works on your phone** — installable PWA over your private network; optional `.ics` / caldav export if you'd rather see appointments in a native calendar app.
 - **mcp server** — let an assistant log your wins, add todos, flag what's slipping, and review your week (one optional dep).
-- **a coach, if you want one** — a next-move line at the top of today, and a chat box whose answers
+- **a coach, if you want one** — a next-move line beside the calendar, and a chat box whose answers
   can *act* on your planner (reschedule, log, add) through the same mcp tools — never delete.
 - **it reaches out** — optional push that nudges you: a daily standup + weekly review, with overdue
   alerts that escalate the longer you ignore them. as phone *and* desktop notifications, tap-to-open.
@@ -40,16 +38,14 @@ no build step, no `npm`, no dependencies for the app itself.
 
 ## how to use it
 
-five sections (number keys switch them):
+four sections (number keys switch them):
 
-1. **today** — your daily glance, one spot with one purpose: the **coach line** (if set) at the very
-   top — one next move, stamped with its age — then what's **left** today (a timed appointment drops
-   off once it's over) and tomorrow's appointments. todos and wins live on their own tabs. open this
-   first each day.
-2. **calendar** — month grid; click a day to see what's on it and add an appointment with the **full
-   controls right there** (time, place, repeat, end-date) — no jumping to another page. colored
-   marks: green = a win, blue = an appointment, yellow = a due todo, violet = a diary entry.
-3. **appts** — your agenda, upcoming only: soonest first, the very next one highlighted, and an
+1. **calendar** — home. month grid; click a day to see what's on it and add an appointment with the
+   **full controls right there** (time, place, repeat, end-date) — no jumping to another page. colored
+   marks: green = a win, blue = an appointment, yellow = a due todo, violet = a diary entry. beside
+   the grid: the **coach line** (if set) — one next move, stamped with its age — with its chat box,
+   then the selected day's agenda.
+2. **appts** — your agenda, upcoming only: soonest first, the very next one highlighted, and an
    appointment drops off at its end time (recurring series resolve to their next un-finished
    occurrence). past ones aren't shown — search (`/`) still finds them. add with a date (+ optional
    time); set **repeat** (daily / weekly / every-other-week / monthly, with an optional end date) to
@@ -58,7 +54,7 @@ five sections (number keys switch them):
    a spammy series (say, a daily alarm synced in from the phone) can be **muted** (`m`): it disappears
    from the calendar, today, reminders and the `.ics` feed without being deleted — `M` shows the
    hidden pile, and a caldav server copy is never touched.
-4. **todos** — things to do; give one a due date and it becomes a reminder on the calendar + phone.
+3. **todos** — things to do; give one a due date and it becomes a reminder on the calendar + phone.
    each todo carries a **colour by deadline pressure**: red = due today / overdue, yellow = due soon
    (within ~3 days), calm green = plenty of time or no date — so the most urgent thing is obvious at a
    glance, and the top of the list is literally what to do next. the page keeps a **7-day horizon** — due
@@ -66,7 +62,7 @@ five sections (number keys switch them):
    line, opened with `L`. filtering (`/`) still searches the lot. set **repeat** to make a todo a daily/weekly **routine** (eat lunch, workout, meds) — it
    shows up every day in "todos due", ticked off per-day so it's back tomorrow; routines never count as
    "overdue" (a missed day is just a day).
-5. **journal** — the life-log: **diary entries and wins on one timeline**, newest day first. write
+4. **journal** — the life-log: **diary entries and wins on one timeline**, newest day first. write
    what happened in a free-text entry stamped to the moment (log as many as you like a day), or flip
    the **★ win** toggle to log it as a win; filter the stream to **all** or **wins only**, and search
    it. set a date to **backdate a memory** (something from last week, or years ago). up top, a
@@ -83,7 +79,7 @@ nothing needs saving — it's written to disk the moment you add it.
 
 | keys | action | | keys | action |
 |---|---|---|---|---|
-| `1` … `5` | switch section | | `h` `j` `k` `l` | calendar: move day in grid |
+| `1` … `4` | switch section | | `h` `j` `k` `l` | calendar: move day in grid |
 | `n` | new item | | `H` / `L` | calendar: jump month |
 | `c` | talk to the coach | | `e` / dbl-click | edit selected |
 | `j` / `k` | move selection (lists) | | `enter` | save edit / open day |
@@ -120,11 +116,11 @@ any mcp client — claude desktop, claude code, etc.)
 
 two pieces, both optional, both riding the same local files:
 
-- **the directive** — one next-move line at the top of today, shown with its age so stale advice
+- **the directive** — one next-move line beside the calendar, shown with its age so stale advice
   looks stale. anything can write it — a script on a timer, typically an llm that read
   `whats_slipping` first: `python3 -c "import store; store.set_coach('close out the passport — it
   blocks the flights')"`. writing the same line twice is a no-op, so a timer never causes churn.
-- **the chat** — the coach box on today (`c` focuses it; enter sends, shift+enter newlines — dump
+- **the chat** — the coach box beside the calendar (`c` focuses it; enter sends, shift+enter newlines — dump
   whole paragraphs at it). your message runs the
   [claude cli](https://claude.com/claude-code) headless with **only lifeplanner's
   mcp tools** — no shell, no file access, and no `delete_item` — so "push the dentist to thursday

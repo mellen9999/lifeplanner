@@ -8,7 +8,7 @@ const ACCENTS = [
 const DOW = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const MONTHS = ["january", "february", "march", "april", "may", "june",
   "july", "august", "september", "october", "november", "december"];
-const VIEWS = ["today", "calendar", "appointments", "todos", "journal"];
+const VIEWS = ["calendar", "appointments", "todos", "journal"];
 const REPEAT_OPTIONS = [
   { value: "", label: "once" },
   { value: "daily", label: "daily" },
@@ -19,7 +19,7 @@ const REPEAT_OPTIONS = [
 ];
 
 let state = { achievements: [], todos: [], appointments: [], journal: [], settings: {}, coach: {}, version: "" };
-let view = "today";
+let view = "calendar";
 let sel = -1;                 // selected list index in current section
 let editing = null;           // id of the item being edited inline
 let calCursor = startOfMonth(new Date());
@@ -489,16 +489,16 @@ function visibleTodos() {
 
 // ---- render -----------------------------------------------------------------
 
-// only the visible view is (re)built — the other four are display:none, so
+// only the visible view is (re)built — the others are display:none, so
 // painting them on every poll/keystroke is wasted DOM work. switching views
 // calls render() again, so the newly-active view is always fresh.
 const RENDERERS = {
-  today: renderToday, calendar: renderCalendar, appointments: renderAppointments,
+  calendar: renderCalendar, appointments: renderAppointments,
   todos: renderTodos, journal: renderJournal,
 };
 function render() {
   renderSyncBanner();
-  (RENDERERS[view] || renderToday)();
+  (RENDERERS[view] || renderCalendar)();
   if (searchOpen) {
     const n = currentList().length;
     document.getElementById("search-count").textContent = `${n} match${n === 1 ? "" : "es"}`;
@@ -793,50 +793,7 @@ function mountList(container, items, builder, emptyMsg) {
   container.appendChild(list);
 }
 
-// ---- today / agenda ---------------------------------------------------------
-
-function renderToday() {
-  const root = document.getElementById("today");
-  clear(root);
-  const t = todayIso();
-  const now = new Date();
-  // the coach directive — the single next optimal move, first thing on the page.
-  const coach = renderCoach();
-  if (coach) root.appendChild(coach);
-  const head = el("h2", "section-h", `today — ${MONTHS[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`);
-  root.appendChild(head);
-
-  const grid = el("div", "agenda");
-
-  // one day's occurrences (recurring series expanded), time-sorted agenda lines
-  const dayAppts = (dayIso) => {
-    const appts = [];
-    visibleAppts().forEach(a =>
-      apptOccurrences(a, dayIso, dayIso).forEach(w => appts.push({ ...a, when: w })));
-    return appts.sort((a, b) => (a.when > b.when ? 1 : -1));
-  };
-  const apptLine = (a) =>
-    agendaLine("appt", (timeOf(a.when) ? fmtTimeRange(a.when, a.end) + "  " : "") + a.title, a.location);
-
-  // appointments today — REMAINING only: a timed appt drops off once it's over
-  // (its end, or its start when open-ended, is behind now). all-day ones stay.
-  const nowT = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  const remaining = dayAppts(t).filter(a => {
-    const startT = timeOf(a.when);
-    return !startT || (timeOf(a.end) || startT) >= nowT;
-  });
-  grid.appendChild(agendaCard("appointments today", remaining.length
-    ? remaining.map(apptLine)
-    : [el("div", "muted small", "nothing left today")]));
-
-  // and tomorrow's — so the evening glance answers "what am i waking up into"
-  const tomorrow = dayAppts(addDays(t, 1));
-  grid.appendChild(agendaCard("appointments tomorrow", tomorrow.length
-    ? tomorrow.map(apptLine)
-    : [el("div", "muted small", "nothing scheduled")]));
-
-  root.appendChild(grid);
-}
+// ---- coach ------------------------------------------------------------------
 
 // the coach box: the claude-written directive line (the "next optimal move")
 // plus an agentic chat — mellen talks to the coach, which can actually add,
@@ -907,26 +864,11 @@ async function coachSend(text) {
   }
   coachBusy = false;
   coachPending = "";
-  await refresh();          // repaints today with the persisted transcript
+  await refresh();          // repaints with the persisted transcript
   const inp = document.getElementById("coach-input");
   if (inp) inp.focus();
 }
 
-function agendaCard(title, children) {
-  const c = el("div", "card2");
-  c.appendChild(el("h3", null, title));
-  children.forEach(ch => c.appendChild(ch));
-  return c;
-}
-function agendaLine(kind, text, sub) {
-  const li = el("div", "li");
-  li.appendChild(el("span", "mk " + kind));
-  const body = el("div");
-  body.appendChild(el("span", null, text));
-  if (sub) body.appendChild(el("div", "sub", sub));
-  li.appendChild(body);
-  return li;
-}
 // ---- achievements heatmap + streaks ----------------------------------------
 
 function winCounts() {
@@ -1473,7 +1415,13 @@ function renderCalendar() {
     grid.appendChild(c);
   }
   wrap.appendChild(grid);
-  wrap.appendChild(renderDayPanel());
+  // the right column: the coach (directive + chat) on top — the "next move" stays
+  // above the fold now that the calendar is home — then the selected day's agenda.
+  const side = el("div", "cal-side");
+  const coach = renderCoach();
+  if (coach) side.appendChild(coach);
+  side.appendChild(renderDayPanel());
+  wrap.appendChild(side);
   root.appendChild(wrap);
 }
 
@@ -1553,7 +1501,6 @@ function shiftMonth(n) {
 
 function focusAdd() {
   const v = document.getElementById(view);
-  if (view === "today") { focusCoach(); return; }  // today's one input is the coach
   const form = v && v.querySelector(".add");
   if (form && form._first) {
     form._first.focus();
@@ -1565,7 +1512,7 @@ function focusAdd() {
 // jump to the coach chat from anywhere — keyboard-first path to the one input
 // that can act on the whole planner.
 function focusCoach() {
-  if (view !== "today") setView("today");
+  if (view !== "calendar") setView("calendar");
   setTimeout(() => {
     const i = document.getElementById("coach-input");
     if (i) { i.focus(); i.classList.add("flash"); setTimeout(() => i.classList.remove("flash"), 400); }
@@ -1627,11 +1574,10 @@ document.addEventListener("keydown", (e) => {
   }
 
   switch (e.key) {
-    case "1": setView("today"); break;
-    case "2": setView("calendar"); break;
-    case "3": setView("appointments"); break;
-    case "4": setView("todos"); break;
-    case "5": setView("journal"); break;
+    case "1": setView("calendar"); break;
+    case "2": setView("appointments"); break;
+    case "3": setView("todos"); break;
+    case "4": setView("journal"); break;
     case "n": e.preventDefault(); focusAdd(); break;
     case "c": e.preventDefault(); focusCoach(); break;
     case "/": e.preventDefault(); openSearch(); break;
@@ -1762,7 +1708,7 @@ async function poll() {
 
 wireBar();
 const boot = location.hash.slice(1);
-setView(VIEWS.includes(boot) ? boot : "today");
+setView(VIEWS.includes(boot) ? boot : "calendar");
 refresh();
 setInterval(poll, 4000);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") poll(); });
