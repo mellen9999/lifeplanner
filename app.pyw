@@ -169,6 +169,13 @@ class Handler(BaseHTTPRequestHandler):
             # tools. the server is threaded, so this long call never blocks the
             # poller or other requests.
             return self._json(200, coach_chat.respond(data.get("message", "")))
+        if path == "/api/coach/memory":
+            data = self._body()
+            if data is None:
+                return self._json(400, {"error": "bad json"})
+            # `on` lets undo restore a deleted note with its original date.
+            entry = store.add_coach_memory(data.get("note", ""), on=data.get("date", ""))
+            return self._json(201, entry) if entry else self._json(400, {"error": "empty note"})
         entity = self._entity(path, exact=True)
         if entity is None:
             return self._json(404, {"error": "not found"})
@@ -221,7 +228,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         if not self._authed():
             return self._json(401, {"error": "unauthorized"})
-        entity, item_id = self._entity_id(urlparse(self.path).path)
+        path = urlparse(self.path).path
+        if path.startswith("/api/coach/memory/"):
+            ok = store.delete_coach_memory(path.rsplit("/", 1)[1])
+            return self._json(200, {"deleted": True}) if ok else self._json(404, {"error": "not found"})
+        entity, item_id = self._entity_id(path)
         if entity is None:
             return self._json(404, {"error": "not found"})
         try:

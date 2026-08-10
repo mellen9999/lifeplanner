@@ -325,8 +325,27 @@ def remember(note: str) -> dict:
 
 @mcp.tool()
 def list_memory() -> list:
-    """everything you've remembered about the user, oldest first."""
+    """everything you've remembered about the user, oldest first. each note has
+    an id — pass it to forget to remove a wrong or obsolete fact."""
     return store.list_coach_memory()
+
+
+@mcp.tool()
+def forget(note_id: str) -> dict:
+    """delete one memory note by id (ids come from list_memory). use when a
+    remembered fact is wrong or obsolete."""
+    return {"deleted": store.delete_coach_memory(note_id), "id": note_id}
+
+
+@mcp.tool()
+def get_coach_chat(limit: int = 40, before_index: int = -1) -> dict:
+    """the coach chat transcript — everything the user has ever typed to his
+    in-app coach, plus the replies. returns {"total": N, "turns": [{"i", "role",
+    "text", "ts"}]}, the `limit` turns ending just before `before_index`
+    (default: the end). turns are oldest-first; page back by passing the
+    smallest `i` you've seen as before_index. role "system" marks a failed
+    coach turn — the message above it got no reply."""
+    return store.coach_chat_page(limit, before_index)
 
 
 @mcp.tool()

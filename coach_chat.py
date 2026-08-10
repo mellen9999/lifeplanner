@@ -29,9 +29,8 @@ CLAUDE = os.environ.get("LIFEPLANNER_CLAUDE_BIN") or shutil.which("claude") or "
 PY = os.environ.get("LIFEPLANNER_PY") or sys.executable
 MCP_SERVER = str(BASE / "mcp_server.py")
 TIMEOUT = int(os.environ.get("LIFEPLANNER_COACH_TIMEOUT", "150"))
-MAX_MSG = store.COACH_MSG_MAX  # one message cap — shared with the store's turn cap
+MAX_MSG = store.COACH_MSG_MAX  # prompt trim per HISTORY turn — persistence caps live in the store
 MAX_TURNS = 12   # most recent turns of history included for context
-MAX_NOTES = 30   # most recent memory notes inlined (list_memory serves the rest)
 
 # exactly the tools the coach may use — reads + non-destructive writes. delete is
 # deliberately absent: the coach creates and modifies, never destroys (data
@@ -44,8 +43,10 @@ _TOOLS = (
     "add_appointment", "update_appointment",
     "add_achievement", "update_achievement",
     "add_journal", "update_journal",
-    "remember", "list_memory",
+    "remember", "list_memory", "get_coach_chat",
 )
+# forget is deliberately NOT allowed — the coach creates memory, never destroys
+# it; deletion belongs to mellen (the ui) and his own claude sessions.
 ALLOWED = [f"mcp__lifeplanner__{t}" for t in _TOOLS]
 # defence-in-depth: even though only ALLOWED is whitelisted, name the shell/file
 # tools explicitly so a future config slip can't quietly grant them.
@@ -96,14 +97,15 @@ def _state_summary(today):
 
 
 def _memory_summary():
-    """the coach's saved facts about mellen, most recent MAX_NOTES inline. keeps
-    the prompt bounded; the list_memory tool serves anything older."""
-    notes = store.list_coach_memory()
+    """the coach's saved facts about mellen — the store's one shared window
+    (same one the brief timer uses), so what the coach knows never diverges by
+    consumer. list_memory serves anything the budget left out."""
+    notes, omitted = store.coach_memory_window()
     if not notes:
         return "nothing saved yet"
-    lines = [f'{n.get("date", "")}: {n["note"]}' for n in notes[-MAX_NOTES:]]
-    if len(notes) > MAX_NOTES:
-        lines.insert(0, f"({len(notes) - MAX_NOTES} older notes — list_memory has all)")
+    lines = [f'{n.get("date", "")}: {n["note"]}' for n in notes]
+    if omitted:
+        lines.insert(0, f"({omitted} older notes — list_memory has all)")
     return "\n".join(lines)
 
 
@@ -132,11 +134,17 @@ def _transcript(history, message):
     for turn in (history or [])[-MAX_TURNS:]:
         if not isinstance(turn, dict):
             continue
-        role = "mellen" if turn.get("role") == "you" else "coach"
-        text = str(turn.get("text") or "").strip()[:MAX_MSG]  # cap so a long turn can't bloat the prompt
-        if text:
-            lines.append(f"{role}: {text}")
-    lines.append(f"mellen: {message}")
+        text = str(turn.get("text") or "").strip()[:MAX_MSG]  # cap so a long HISTORY turn can't bloat the prompt
+        if not text:
+            continue
+        role = turn.get("role")
+        if role == "system":
+            # a failed turn — spelled out so the model never reads the message
+            # above it as silently answered.
+            lines.append(f"coach: (no reply — {text}; the message above went unanswered)")
+        else:
+            lines.append(f'{"mellen" if role == "you" else "coach"}: {text}')
+    lines.append(f"mellen: {message}")  # the live message rides untrimmed
     lines.append("coach:")
     return "\n".join(lines)
 
@@ -148,15 +156,30 @@ def respond(message):
     history and memory come from the store, not the client — the coach remembers
     across sessions and devices. the user turn is logged BEFORE claude runs, so
     even a timeout never loses what mellen typed."""
-    message = (message or "").strip()[:MAX_MSG]
+    message = (message or "").strip()
     if not message:
         return {"error": "empty message"}
+    # persist FIRST, untrimmed — the store's 64k bound is the only cut, and it's
+    # reported, never silent. everything after this line can fail without losing
+    # a word mellen typed.
+    turn = store.log_coach_turn("you", message)
+    clipped = bool(turn and turn.get("clipped"))
+    message = turn["text"]  # what was actually stored is what the coach answers
+
+    def fail(msg):
+        # a failed turn is persisted as a system marker so the transcript never
+        # shows mellen's message as silently answered (browser errors evaporate).
+        store.log_coach_turn("system", msg)
+        out = {"error": msg}
+        if clipped:
+            out["clipped"] = True
+        return out
+
     today = date.today().isoformat()
-    history = store.coach_chat_tail(MAX_TURNS)  # read before logging this turn
+    history = store.coach_chat_tail(MAX_TURNS + 1)[:-1]  # everything before this turn
     prompt = (f"{_persona(today)}\n\nwhat you know about mellen (saved memory):\n"
               f"{_memory_summary()}\n\ncurrent state:\n{_state_summary(today)}\n\n"
               f"conversation so far:\n{_transcript(history, message)}")
-    store.log_coach_turn("you", message)
     cmd = [CLAUDE, "-p", prompt,
            "--mcp-config", _mcp_config_path(), "--strict-mcp-config",
            "--allowedTools", *ALLOWED, "--disallowedTools", *DISALLOWED]
@@ -164,13 +187,16 @@ def respond(message):
         r = subprocess.run(cmd, capture_output=True, text=True,
                            timeout=TIMEOUT, cwd="/tmp", stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
-        return {"error": "coach timed out — try again"}
+        return fail("coach timed out — try again")
     except OSError as e:
-        return {"error": f"coach unavailable ({e})"}
+        return fail(f"coach unavailable ({e})")
     out = (r.stdout or "").strip()
     if r.returncode != 0 and not out:
-        return {"error": "coach failed — " + ((r.stderr or "").strip()[:200] or "no output")}
+        return fail("coach failed — " + ((r.stderr or "").strip()[:200] or "no output"))
     if not out:
-        return {"error": "coach had nothing to say — try rephrasing"}
+        return fail("coach had nothing to say — try rephrasing")
     store.log_coach_turn("coach", out)
-    return {"reply": out}
+    reply = {"reply": out}
+    if clipped:
+        reply["clipped"] = True
+    return reply

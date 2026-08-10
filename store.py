@@ -568,18 +568,24 @@ def set_coach(line):
 # tells the coach is ever lost), and durable facts the coach distils live in a
 # separate memory list. both feed the coach prompt so it never starts cold.
 
-COACH_MSG_MAX = 4000    # one chat turn
-COACH_NOTE_MAX = 500    # one memory note
+COACH_MSG_MAX = 4000      # prompt window per HISTORY turn — never a persistence cap
+COACH_TURN_MAX = 64_000   # persistence cap per turn (a runaway-paste bound, not a trim)
+COACH_NOTE_MAX = 500      # one memory note
+COACH_MEM_BUDGET = 6_000  # chars of memory notes inlined into any coach prompt
 
 
 def log_coach_turn(role, text):
-    """append one chat turn (role: 'you' | 'coach'). returns the stored turn,
+    """append one chat turn (role: 'you' | 'coach' | 'system'). 'system' marks a
+    failed coach turn so the message above it never reads as silently answered.
+    returns the stored turn (with "clipped": True if the text was actually cut),
     or None for blank/invalid input."""
-    text = str(text or "").strip()[:COACH_MSG_MAX]
-    if not text or role not in ("you", "coach"):
+    text = str(text or "").strip()
+    if not text or role not in ("you", "coach", "system"):
         return None
-    turn = {"role": role, "text": text,
+    turn = {"role": role, "text": text[:COACH_TURN_MAX],
             "ts": datetime.now().isoformat(timespec="minutes")}
+    if len(text) > COACH_TURN_MAX:
+        turn["clipped"] = True
     with FileLock():
         turns = _read_raw("coach_chat", [])
         if not isinstance(turns, list):
@@ -597,16 +603,54 @@ def coach_chat_tail(n=12):
     return [t for t in turns[-max(1, n):] if isinstance(t, dict)]
 
 
-def add_coach_memory(note):
-    """save one durable fact about mellen. whitespace-collapsed, length-capped."""
+def coach_chat_page(limit=40, before_index=-1):
+    """a stable page of the full transcript for outside readers (the mcp tool).
+    turns carry their absolute index `i` into the append-only list, so paging
+    back with before_index=<smallest i seen> can't shift under a concurrent
+    append. returns {"total": N, "turns": [...oldest-first...]}."""
+    turns = _read_raw("coach_chat", [])
+    if not isinstance(turns, list):
+        turns = []
+    total = len(turns)
+    limit = max(1, min(int(limit or 40), 200))
+    end = total if before_index is None or before_index < 0 else min(int(before_index), total)
+    page = [{"i": i, **t} for i, t in enumerate(turns[max(0, end - limit):end], start=max(0, end - limit))
+            if isinstance(t, dict)]
+    return {"total": total, "turns": page}
+
+
+def _ensure_memory_ids(notes):
+    """give id-less notes (the pre-id era) stable ids. returns True if any were
+    assigned — caller persists. runs inside the lock."""
+    changed = False
+    for n in notes:
+        if isinstance(n, dict) and n.get("note") and not n.get("id"):
+            n["id"] = uuid4().hex[:12]
+            changed = True
+    return changed
+
+
+def add_coach_memory(note, on=None):
+    """save one durable fact about mellen. whitespace-collapsed, length-capped.
+    an exact (normalized) duplicate returns the existing entry without appending —
+    the deterministic backstop that lets remember + the nightly distiller overlap
+    safely. `on` optionally backdates (YYYY-MM-DD) — used by undo to keep a
+    restored note's original date."""
     note = " ".join(str(note or "").split())[:COACH_NOTE_MAX]
     if not note:
         return None
-    entry = {"note": note, "date": date.today().isoformat()}
     with FileLock():
         notes = _read_raw("coach_memory", [])
         if not isinstance(notes, list):
             notes = []
+        migrated = _ensure_memory_ids(notes)
+        dup = next((n for n in notes if isinstance(n, dict) and n.get("note") == note), None)
+        if dup:
+            if migrated:
+                _write_raw("coach_memory", notes)
+            return dup
+        entry = {"id": uuid4().hex[:12], "note": note,
+                 "date": _norm_date(on) if on else date.today().isoformat()}
         notes.append(entry)
         _write_raw("coach_memory", notes)
     return entry
@@ -616,7 +660,63 @@ def list_coach_memory():
     notes = _read_raw("coach_memory", [])
     if not isinstance(notes, list):
         return []
-    return [n for n in notes if isinstance(n, dict) and n.get("note")]
+    valid = [n for n in notes if isinstance(n, dict) and n.get("note")]
+    # lazy one-time migration of the pre-id era: double-checked so the steady
+    # state stays a lock-free read.
+    if any(not n.get("id") for n in valid):
+        with FileLock():
+            notes = _read_raw("coach_memory", [])
+            if isinstance(notes, list) and _ensure_memory_ids(notes):
+                _write_raw("coach_memory", notes)
+            valid = [n for n in notes if isinstance(n, dict) and n.get("note")]
+    return valid
+
+
+def delete_coach_memory(note_id):
+    """remove one memory note by id. returns True on a hit; a miss writes
+    nothing (so it can't flip the version token)."""
+    if not note_id:
+        return False
+    with FileLock():
+        notes = _read_raw("coach_memory", [])
+        if not isinstance(notes, list):
+            return False
+        kept = [n for n in notes if not (isinstance(n, dict) and n.get("id") == note_id)]
+        if len(kept) == len(notes):
+            return False
+        _write_raw("coach_memory", kept)
+    return True
+
+
+def coach_memory_window(budget=COACH_MEM_BUDGET):
+    """the notes every coach prompt inlines: newest kept first under the char
+    budget, returned oldest-first for rendering, plus how many older ones were
+    left out. ONE window shared by the chat coach and the brief timer, so what
+    the coach knows never diverges by consumer."""
+    notes = list_coach_memory()
+    kept, used = [], 0
+    for n in reversed(notes):
+        used += len(n.get("note", ""))
+        if kept and used > budget:
+            break
+        kept.append(n)
+    kept.reverse()
+    return kept, len(notes) - len(kept)
+
+
+def coach_distill_cursor():
+    """how many chat turns the nightly distiller has already consumed."""
+    obj = _read_raw("coach_distill", {})
+    try:
+        return max(0, int(obj.get("cursor", 0))) if isinstance(obj, dict) else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def set_coach_distill_cursor(n):
+    with FileLock():
+        _write_raw("coach_distill", {"cursor": max(0, int(n)),
+                                     "ts": datetime.now().isoformat(timespec="minutes")})
 
 
 # ---- date helpers -----------------------------------------------------------
@@ -792,7 +892,7 @@ def state():
                           reverse=True),
         "sync": appointments_status(),
         "settings": get_settings(),
-        "coach": {**get_coach(), "chat": coach_chat_tail(12)},
+        "coach": {**get_coach(), "chat": coach_chat_tail(12), "memory": list_coach_memory()},
         "version": version(),
     }
 
@@ -1026,7 +1126,7 @@ def export_bytes():
     # derived from ENTITIES so a new entity can never be silently left out of a
     # backup. settings + the caldav cache round out the on-disk vault.
     names = (*ENTITIES, "appointments.cache", "settings", "hidden_appts",
-             "coach", "coach_chat", "coach_memory")
+             "coach", "coach_chat", "coach_memory", "coach_distill")
     # read raw bytes under the lock (a consistent snapshot), then compress
     # outside it — compression is CPU-bound and must not block concurrent writes.
     blobs = {}
