@@ -110,11 +110,27 @@ class DirectiveLifecycleTest(unittest.TestCase):
 
     def test_a_line_is_pushed_once_and_a_dismissed_one_never_is(self):
         store.set_coach("ship the auth flow", "fp1")
+        self.assertEqual(store.coach_push_pending(), "ship the auth flow")
         self.assertTrue(store.mark_coach_pushed())
-        self.assertFalse(store.mark_coach_pushed())       # never twice
+        self.assertEqual(store.coach_push_pending(), "")   # never twice
+        self.assertFalse(store.mark_coach_pushed())
         store.set_coach("call the landlord", "fp2")
         store.dismiss_coach()
-        self.assertFalse(store.mark_coach_pushed())       # rejected, so unsent
+        self.assertEqual(store.coach_push_pending(), "")   # rejected, so unsent
+
+    def test_a_failed_push_stays_unclaimed_and_retries(self):
+        # the line is claimed only once ntfy actually took it — a dead server
+        # must not silently eat the day's push.
+        store.set_coach("ship the auth flow", "fp1")
+        brief.notify.configured = lambda: True
+        brief.notify.send = lambda *a, **k: (_ for _ in ()).throw(OSError("no ntfy"))
+        self.assertFalse(brief.push())
+        self.assertEqual(store.coach_push_pending(), "ship the auth flow")
+        sent = []
+        brief.notify.send = lambda *a, **k: sent.append((a, k)) or True
+        self.assertTrue(brief.push())
+        self.assertEqual(sent[0][0], ("coach", "ship the auth flow"))
+        self.assertFalse(brief.push())                     # and only once
 
 
 class _Run:

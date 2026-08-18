@@ -615,6 +615,15 @@ def dismiss_coach():
     return True
 
 
+def coach_push_pending():
+    """the live line if it still owes an outbound push, else "" — a dismissed or
+    already-sent line never does. read-only on purpose: the sender claims the
+    line only once the push actually landed, so a dead ntfy retries next run."""
+    c = get_coach()
+    line = c.get("line", "")
+    return "" if not line or c.get("dismissed") or c.get("pushed") == line else line
+
+
 def mark_coach_pushed():
     """claim the current line for one outbound push. false when there is nothing
     live to send or the line already went out — the push channel never repeats."""

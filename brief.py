@@ -116,15 +116,16 @@ def push():
     if not notify.configured():
         print("ntfy not configured — no push")
         return False
-    line = store.get_coach().get("line", "")
-    if not store.mark_coach_pushed():
+    line = store.coach_push_pending()
+    if not line:
         print("nothing new to push")
         return False
     try:
         notify.send("coach", line, priority=3, tags=["muscle"], view="todos")
     except OSError as e:
-        print(f"push failed ({e})")
+        print(f"push failed ({e}) — unclaimed, retried next run")
         return False
+    store.mark_coach_pushed()  # claimed only once it actually landed
     print("pushed:", line)
     return True
 
@@ -140,7 +141,9 @@ def main():
     else:
         line = ask(today, state)
         if dry:
-            print(f"dry run — would {'stay quiet' if line in (None, '-') else 'write: ' + line}")
+            print("dry run — " + ("would keep the previous line (no usable output)" if line is None
+                                  else "would stay quiet (nothing new to say)" if line == "-"
+                                  else f"would write: {line}"))
         elif line == "-":
             store.touch_coach(fp)  # judged, nothing new — don't ask again until it moves
         elif line:
