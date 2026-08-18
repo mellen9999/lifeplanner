@@ -71,39 +71,64 @@ def _mcp_config_path():
     return _MCP_CONFIG
 
 
-def _state_summary(today):
-    """a compact grounding snapshot so the coach starts informed (it can still call
-    tools for detail). kept terse to bound the prompt."""
-    slip = review.whats_slipping()
+def state_summary(today):
+    """the one grounding snapshot of where mellen actually is — shared by the chat
+    coach and the directive writer, so the two voices can never disagree about the
+    facts. terse on purpose: it bounds the prompt AND doubles as the fingerprint
+    the directive writer stays silent on."""
+    slip = review.whats_slipping(today)
     todos = store.list_items("todos")
     appts = [a for a in store.list_items("appointments") if not a.get("hidden")]
     open_ = [t for t in todos if not t.get("done")]
-    parts = [f"open todos: {len(open_)}"]
     od = slip.get("overdue_todos") or []
-    if od:
-        parts.append("overdue: " + ", ".join(f'{t["title"]} ({t["days_late"]}d)' for t in od[:5]))
+    overdue_ids = {t.get("id") for t in od}
+    due_today = [t for t in open_ if t.get("due") == today and t.get("id") not in overdue_ids]
     rt = slip.get("routines_today") or []
-    if rt:
-        parts.append("routines left today: " + ", ".join(r["title"] for r in rt[:6]))
     soon = sorted((a for a in appts if store.next_occurrence(a, today)),
                   key=lambda a: store.next_occurrence(a, today))[:5]
+    wins = sorted(store.list_items("achievements"),
+                  key=lambda w: (w.get("date", ""), w.get("created", "")))[-3:]
+    other = [t["title"] for t in open_ if not t.get("recur")
+             and t.get("id") not in overdue_ids and t.get("due") != today][:8]
+
+    parts = [f"open todos: {len(open_)}"]
+    if od:
+        parts.append("overdue: " + ", ".join(f'{t["title"]} ({t["days_late"]}d)' for t in od[:5]))
+    if due_today:
+        parts.append("due today: " + ", ".join(t["title"] for t in due_today[:5]))
+    if rt:
+        parts.append("routines left today: " + ", ".join(r["title"] for r in rt[:6]))
     if soon:
         parts.append("next appts: " + ", ".join(
             f'{a["title"]} {store.next_occurrence(a, today)[:16]}' for a in soon))
+    if other:
+        parts.append("other open: " + ", ".join(other))
+    if wins:
+        parts.append("recent wins: " + ", ".join(w.get("title", "") for w in wins))
     dsw = slip.get("days_since_win")
     if dsw:
         parts.append(f"{dsw}d since a logged win")
     return "\n".join(parts)
 
 
-def _memory_summary():
-    """the coach's saved facts about mellen — the store's one shared window
-    (same one the brief timer uses), so what the coach knows never diverges by
-    consumer. list_memory serves anything the budget left out."""
+def _age(iso, today):
+    """how old a saved note is, in mellen-readable terms."""
+    try:
+        d = (date.fromisoformat(today) - date.fromisoformat(str(iso)[:10])).days
+    except (TypeError, ValueError):
+        return "undated"
+    return "today" if d <= 0 else f"{d}d ago"
+
+
+def memory_summary(today):
+    """the coach's saved facts — the store's one shared window (same one the
+    directive writer uses), each stamped with its age. the age is the point: a
+    note is what was true on that date, and an unaged snapshot is exactly how a
+    twelve-day-old situation gets served back as today's news."""
     notes, omitted = store.coach_memory_window()
     if not notes:
         return "nothing saved yet"
-    lines = [f'{n.get("date", "")}: {n["note"]}' for n in notes]
+    lines = [f'{n.get("date", "")} ({_age(n.get("date"), today)}): {n["note"]}' for n in notes]
     if omitted:
         lines.insert(0, f"({omitted} older notes — list_memory has all)")
     return "\n".join(lines)
@@ -120,7 +145,10 @@ def _persona(today):
         "campaign is financial independence — his own income, his own place. his "
         "priority project is heatsync, a pre-launch threaded social platform for "
         "twitch/kick; shipping it is the lever. you have long-term memory: your "
-        "saved notes about him are below, and whenever he tells you anything worth "
+        "saved notes about him are below — each is a dated snapshot of what was true "
+        "that day, NOT of now, so treat anything older than a few days as history: "
+        "check the current state or a tool before acting on it, and never re-raise "
+        "an old thread he has moved on from. whenever he tells you anything worth "
         "keeping — a preference, situation, constraint, plan, how he's doing — "
         "call remember to save it (concise, one fact per note) before you reply. "
         "he expects to brain-dump whole paragraphs at you and have none of it "
@@ -178,7 +206,7 @@ def respond(message):
     today = date.today().isoformat()
     history = store.coach_chat_tail(MAX_TURNS + 1)[:-1]  # everything before this turn
     prompt = (f"{_persona(today)}\n\nwhat you know about mellen (saved memory):\n"
-              f"{_memory_summary()}\n\ncurrent state:\n{_state_summary(today)}\n\n"
+              f"{memory_summary(today)}\n\ncurrent state:\n{state_summary(today)}\n\n"
               f"conversation so far:\n{_transcript(history, message)}")
     cmd = [CLAUDE, "-p", prompt,
            "--mcp-config", _mcp_config_path(), "--strict-mcp-config",

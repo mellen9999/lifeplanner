@@ -538,29 +538,93 @@ def put_settings(patch):
 
 
 # ---- coach directive --------------------------------------------------------
-# a single claude-written "what's the next optimal move" line, written by the
-# lifeplanner-brief timer and shown at the very top of the today view. the store
-# is a pure reader/writer here — the judgement lives in the timer's prompt.
+# ONE claude-written "next optimal move" line, written by brief.py and shown
+# beside the calendar. the store owns its lifecycle so the writer can behave like
+# a service instead of a broadcaster: the state fingerprint the line was written
+# for (stay silent while nothing has changed), the recent lines and whether each
+# was dismissed (never re-nag), and a dismissal flag (mellen kills a line and it
+# stays dead until the state actually moves).
+
+COACH_RECENT_MAX = 5  # recent lines shown to the writer as "you already said these"
+
 
 def get_coach():
     c = _read_raw("coach", {})
     return c if isinstance(c, dict) else {}
 
 
-def set_coach(line):
-    """store the coach directive. no-ops when the line is unchanged so writing it
-    on a timer never flips the version token (which would repaint the ui every
-    run). returns the stored dict, or None if the line was blank."""
-    line = (line or "").strip()
+def coach_is_current(fp):
+    """true when a live directive was already written for this exact state — the
+    writer's silence gate. no stored fingerprint (pre-lifecycle data) reads as
+    stale, so the first run after an upgrade re-judges once."""
+    c = get_coach()
+    return bool(fp and c.get("line") and c.get("fp") == fp)
+
+
+def coach_recent_lines():
+    """the last few directives, newest last, each with whether it was dismissed."""
+    r = get_coach().get("recent", [])
+    return [x for x in r if isinstance(x, dict) and x.get("line")]
+
+
+def set_coach(line, fp=""):
+    """store a NEW directive: resets the age, clears any dismissal, and files the
+    previous line under `recent`. an identical line only records the fingerprint —
+    a re-say is not news, so it must never flip the age or un-dismiss. returns the
+    stored dict, or None if the line was blank."""
+    line = " ".join(str(line or "").split())
     if not line:
         return None
     with FileLock():
         cur = get_coach()
         if cur.get("line") == line:
-            return cur
-        obj = {"line": line, "created": datetime.now().isoformat(timespec="minutes")}
+            if cur.get("fp") == fp:
+                return cur  # nothing to write — keeps the version token still
+            obj = {**cur, "fp": fp}
+        else:
+            recent = coach_recent_lines()
+            if cur.get("line"):
+                recent.append({"line": cur["line"], "dismissed": bool(cur.get("dismissed"))})
+            obj = {"line": line, "created": datetime.now().isoformat(timespec="minutes"),
+                   "fp": fp, "recent": recent[-COACH_RECENT_MAX:]}
         _write_raw("coach", obj)
     return obj
+
+
+def touch_coach(fp):
+    """record that this state was judged and yielded nothing new — keeps the line,
+    its age and any dismissal, and stops the writer re-asking until the state
+    moves again."""
+    with FileLock():
+        cur = get_coach()
+        if not cur.get("line") or cur.get("fp") == fp:
+            return cur
+        obj = {**cur, "fp": fp}
+        _write_raw("coach", obj)
+    return obj
+
+
+def dismiss_coach():
+    """mellen kills the current line. it stays hidden until a new one is written,
+    and the writer is told it was rejected so it doesn't rephrase the same nag."""
+    with FileLock():
+        cur = get_coach()
+        if not cur.get("line") or cur.get("dismissed"):
+            return False
+        _write_raw("coach", {**cur, "dismissed": True})
+    return True
+
+
+def mark_coach_pushed():
+    """claim the current line for one outbound push. false when there is nothing
+    live to send or the line already went out — the push channel never repeats."""
+    with FileLock():
+        cur = get_coach()
+        line = cur.get("line", "")
+        if not line or cur.get("dismissed") or cur.get("pushed") == line:
+            return False
+        _write_raw("coach", {**cur, "pushed": line})
+    return True
 
 
 # ---- coach chat + memory ----------------------------------------------------
@@ -878,6 +942,18 @@ def next_occurrence(appt, on_or_after_iso):
 
 # ---- aggregate views --------------------------------------------------------
 
+
+def _coach_view():
+    """what the ui gets: the live directive (nothing while it's dismissed), the
+    recent chat and the memory notes. the lifecycle fields — fingerprint, recent
+    lines, push marker — stay server-side; the ui never has to reason about them."""
+    c = get_coach()
+    return {"line": "" if c.get("dismissed") else c.get("line", ""),
+            "created": c.get("created", ""),
+            "chat": coach_chat_tail(12),
+            "memory": list_coach_memory()}
+
+
 def state():
     """everything the ui needs in one shot."""
     return {
@@ -892,7 +968,7 @@ def state():
                           reverse=True),
         "sync": appointments_status(),
         "settings": get_settings(),
-        "coach": {**get_coach(), "chat": coach_chat_tail(12), "memory": list_coach_memory()},
+        "coach": _coach_view(),
         "version": version(),
     }
 

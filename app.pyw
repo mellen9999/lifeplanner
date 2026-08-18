@@ -169,6 +169,11 @@ class Handler(BaseHTTPRequestHandler):
             # tools. the server is threaded, so this long call never blocks the
             # poller or other requests.
             return self._json(200, coach_chat.respond(data.get("message", "")))
+        if path == "/api/coach/dismiss":
+            # kill the current directive. it stays hidden until the planner state
+            # actually moves and a new line is written — a dismissed nag is a
+            # rejected nag, and brief.py is told so.
+            return self._json(200, {"dismissed": store.dismiss_coach()})
         if path == "/api/coach/memory":
             data = self._body()
             if data is None:

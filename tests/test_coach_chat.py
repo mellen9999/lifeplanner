@@ -10,6 +10,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 os.environ["LIFEPLANNER_DATA"] = tempfile.mkdtemp(prefix="lp-coach-test-")
@@ -175,15 +176,24 @@ class CoachMemoryTest(unittest.TestCase):
         self.assertEqual(store.state()["coach"]["chat"][-1]["text"], "hello")
 
     def test_memory_summary_inlines_the_window_and_points_at_the_rest(self):
-        self.assertEqual(coach_chat._memory_summary(), "nothing saved yet")
+        today = date.today().isoformat()
+        self.assertEqual(coach_chat.memory_summary(today), "nothing saved yet")
         # enough max-length notes to overflow the shared budget
         n = store.COACH_MEM_BUDGET // store.COACH_NOTE_MAX + 5
         for i in range(n):
             store.add_coach_memory(f"fact {i:03d} " + "p" * 480)
-        s = coach_chat._memory_summary()
+        s = coach_chat.memory_summary(today)
         self.assertIn(f"fact {n - 1:03d}", s)      # newest inlined
         self.assertNotIn("fact 000", s)            # oldest not
         self.assertIn("older notes", s)            # and flagged
+        self.assertIn("(today)", s)                # every note carries its age
+
+    def test_memory_summary_ages_every_note(self):
+        # the anti-stale rule: a note must never read as present tense. an old
+        # note is labelled old, so neither prompt can serve it back as news.
+        store.add_coach_memory("he was waiting on a test email", on="2026-08-06")
+        s = coach_chat.memory_summary("2026-08-18")
+        self.assertIn("2026-08-06 (12d ago):", s)
 
     def test_failed_claude_run_keeps_the_turn_and_leaves_a_marker(self):
         # "remember all of it": even a coach crash never loses what mellen typed —
