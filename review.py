@@ -13,6 +13,10 @@ import store
 
 
 def _today(today):
+    """accept a date, an iso string, or nothing — callers say "today" three ways
+    and a silently-wrong type here would poison every derived number."""
+    if isinstance(today, str):
+        return date.fromisoformat(today[:10])
     return today or date.today()
 
 
