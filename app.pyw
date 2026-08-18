@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import store
+import brief
 import coach_chat
 
 # all configurable for portability; safe localhost defaults.
@@ -170,10 +171,14 @@ class Handler(BaseHTTPRequestHandler):
             # poller or other requests.
             return self._json(200, coach_chat.respond(data.get("message", "")))
         if path == "/api/coach/dismiss":
-            # kill the current directive. it stays hidden until the planner state
-            # actually moves and a new line is written — a dismissed nag is a
-            # rejected nag, and brief.py is told so.
-            return self._json(200, {"dismissed": store.dismiss_coach()})
+            # X means "not this, give me the next one": the line goes now, and one
+            # replacement is written in the background (~30s) — brief.py is told
+            # it was rejected, so it can't come back reworded. the answer doesn't
+            # wait on claude; the ui poller picks the new line up when it lands.
+            dismissed = store.dismiss_coach()
+            if dismissed:
+                threading.Thread(target=brief.regenerate, daemon=True).start()
+            return self._json(200, {"dismissed": dismissed})
         if path == "/api/coach/memory":
             # `on` lets undo restore a deleted note with its original date.
             entry = store.add_coach_memory(data.get("note", ""), on=data.get("date", ""))

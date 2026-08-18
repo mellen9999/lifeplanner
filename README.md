@@ -119,7 +119,9 @@ two pieces, both optional, both riding the same local files:
   planner state and skips the llm entirely while nothing has moved, it sees its own recent lines
   (and which ones you dismissed) so it can't re-nag, a repeat is rejected in code rather than
   trusted to the model, and it may answer "nothing new". press `X` (or click `×`) to dismiss a
-  line — it stays gone until the state actually changes. `brief.py --notify` pushes the same line
+  line — it goes immediately and one replacement is written in the background (~30s), told the
+  last one was rejected; if there's nothing better, the box simply stays empty until the state
+  moves. `brief.py --notify` pushes the same line
   to ntfy once, so the push and the ui are one voice, never two. anything else can write the line
   too: `python3 -c "import store; store.set_coach('close out the passport — it blocks the flights')"`.
 - **the chat** — the coach box beside the calendar (`c` focuses it; enter sends, shift+enter newlines — dump

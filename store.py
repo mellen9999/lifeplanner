@@ -594,12 +594,15 @@ def set_coach(line, fp=""):
 def touch_coach(fp):
     """record that this state was judged and yielded nothing new — keeps the line,
     its age and any dismissal, and stops the writer re-asking until the state
-    moves again."""
+    moves. `replaced` closes the one re-ask a dismissal earns: without it a
+    dismissed line that the writer can't better would be re-asked every tick."""
     with FileLock():
         cur = get_coach()
-        if not cur.get("line") or cur.get("fp") == fp:
+        if not cur.get("line"):
             return cur
-        obj = {**cur, "fp": fp}
+        obj = {**cur, "fp": fp, "replaced": True}
+        if obj == cur:
+            return cur
         _write_raw("coach", obj)
     return obj
 
@@ -611,7 +614,9 @@ def dismiss_coach():
         cur = get_coach()
         if not cur.get("line") or cur.get("dismissed"):
             return False
-        _write_raw("coach", {**cur, "dismissed": True})
+        # `replaced` false = this dismissal is owed one re-ask: X means "not
+        # this, give me the next one", not "be silent until something changes".
+        _write_raw("coach", {**cur, "dismissed": True, "replaced": False})
     return True
 
 
@@ -622,6 +627,12 @@ def coach_push_pending():
     c = get_coach()
     line = c.get("line", "")
     return "" if not line or c.get("dismissed") or c.get("pushed") == line else line
+
+
+def coach_needs_replacement():
+    """true while a dismissal is still owed its one replacement line."""
+    c = get_coach()
+    return bool(c.get("dismissed") and not c.get("replaced"))
 
 
 def mark_coach_pushed():

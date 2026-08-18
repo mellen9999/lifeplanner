@@ -22,6 +22,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from datetime import date
 
 import coach_chat
@@ -32,6 +33,7 @@ CLAUDE = os.environ.get("LIFEPLANNER_CLAUDE_BIN") or "claude"
 TIMEOUT = int(os.environ.get("LIFEPLANNER_BRIEF_TIMEOUT", "180"))
 MAX_LINE = 200  # a hard bound on what may reach the ui — the prompt asks for ~110
 # output that is an error, a refusal or a hedge is not a directive — keep the old line.
+_REGEN = threading.Lock()  # one regeneration at a time, whoever asks
 REJECT = re.compile(r"api error|rate.?limit|usage limit|error:|i (can'?t|cannot)", re.I)
 
 PROMPT = """you are mellen's sharp, no-fluff life coach. his one campaign is \
@@ -56,9 +58,15 @@ write ONE line: the single highest-leverage thing for him to do or think about \
 next, right now. hard limits: one sentence, max ~110 characters, all lowercase, \
 plain text, no markdown, no emoji, no preamble. make it concrete and personal — \
 name a real todo, appointment or win from the live state above. default to the \
-next heatsync move unless something is overdue or time-sensitive. if the state \
-has not moved in a way that changes his next move, output exactly `-` and \
-nothing else — saying nothing beats saying it twice. output only the line."""
+next heatsync move unless something is overdue or time-sensitive. {tail} output \
+only the line."""
+
+# the two moods: normally silence is the better answer; right after a dismissal it
+# is not — he just cleared the box and is waiting for what to do instead.
+QUIET_TAIL = ("if the state has not moved in a way that changes his next move, output "
+              "exactly `-` and nothing else — saying nothing beats saying it twice.")
+REPLACE_TAIL = ("he just dismissed your last line, so it is rejected: give him the next "
+                "best move instead, on something else. do not output `-`.")
 
 
 def _norm(line):
@@ -83,12 +91,14 @@ def _recent_block():
                      for r in lines)
 
 
-def ask(today, state):
+def ask(today, state, replace=False):
     """one claude call. returns the cleaned line, "-" for nothing to say, or None
-    when the output can't be trusted (caller keeps the previous line)."""
+    when the output can't be trusted (caller keeps the previous line). `replace`
+    is the post-dismissal mood: he cleared the box, so silence is not an answer."""
     prompt = PROMPT.format(today=today, state=state,
                            memory=coach_chat.memory_summary(today),
-                           recent=_recent_block())
+                           recent=_recent_block(),
+                           tail=REPLACE_TAIL if replace else QUIET_TAIL)
     try:
         r = subprocess.run([CLAUDE, "-p"], input=prompt, capture_output=True,
                            text=True, timeout=TIMEOUT, cwd="/tmp")
@@ -130,28 +140,52 @@ def push():
     return True
 
 
-def main():
-    dry = "--dry-run" in sys.argv
+def run(force=False, dry=False):
+    """one pass: judge the state, write a line if there is a new one to write.
+    returns the line written, or "" for stayed quiet."""
     today = date.today().isoformat()
     state = coach_chat.state_summary(today)
     fp = fingerprint(state)
+    replace = store.coach_needs_replacement()
 
-    if store.coach_is_current(fp) and "--force" not in sys.argv:
+    if store.coach_is_current(fp) and not force and not replace:
         print("state unchanged — nothing to say")
-    else:
-        line = ask(today, state)
-        if dry:
-            print("dry run — " + ("would keep the previous line (no usable output)" if line is None
-                                  else "would stay quiet (nothing new to say)" if line == "-"
-                                  else f"would write: {line}"))
-        elif line == "-":
-            store.touch_coach(fp)  # judged, nothing new — don't ask again until it moves
-        elif line:
-            store.set_coach(line, fp)
-            print("coach:", line)
+        return ""
+    line = ask(today, state, replace=replace)
+    if dry:
+        print("dry run — " + ("would keep the previous line (no usable output)" if line is None
+                              else "would stay quiet (nothing new to say)" if line == "-"
+                              else f"would write: {line}"))
+        return ""
+    if line == "-":
+        store.touch_coach(fp)  # judged, nothing new — don't ask again until it moves
+        return ""
+    if line:
+        store.set_coach(line, fp)
+        print("coach:", line)
+        return line
+    return ""
 
+
+def regenerate():
+    """re-ask once, off the back of a dismissal — used by the app so pressing X
+    means "not this, give me the next one" instead of "be silent until something
+    changes". one at a time: mashing the button can't fan out claude processes."""
+    if not _REGEN.acquire(blocking=False):
+        print("already thinking")
+        return ""
+    try:
+        return run()
+    finally:
+        _REGEN.release()
+
+
+def main():
+    dry = "--dry-run" in sys.argv
+    run(force="--force" in sys.argv, dry=dry)
     if "--notify" in sys.argv and not dry:
         push()
+
 
 
 if __name__ == "__main__":

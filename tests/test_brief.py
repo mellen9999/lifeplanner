@@ -81,6 +81,25 @@ class DirectiveLifecycleTest(unittest.TestCase):
             store.set_coach(f"line {i}", f"fp{i}")
         self.assertEqual(len(store.coach_recent_lines()), store.COACH_RECENT_MAX)
 
+    def test_a_dismissal_earns_exactly_one_re_ask(self):
+        # X means "not this, give me the next one" — but if the writer has nothing
+        # better, that must not become a re-ask on every tick forever.
+        store.set_coach("ship the auth flow", "fp1")
+        self.assertFalse(store.coach_needs_replacement())
+        store.dismiss_coach()
+        self.assertTrue(store.coach_needs_replacement())
+        store.touch_coach("fp1")                      # tried, nothing better
+        self.assertFalse(store.coach_needs_replacement())
+        self.assertTrue(store.get_coach()["dismissed"])   # and it stays hidden
+
+    def test_the_replacement_prompt_forbids_silence(self):
+        seen = {}
+        brief.subprocess.run = lambda *a, **k: seen.update(p=k["input"]) or _Run("book the dentist")
+        brief.ask("2026-08-18", "state", replace=True)
+        self.assertIn("do not output `-`", seen["p"])
+        brief.ask("2026-08-18", "state")
+        self.assertIn("saying nothing beats saying it twice", seen["p"])
+
     def test_a_repeat_is_rejected_in_code_not_left_to_the_model(self):
         store.set_coach("ship the auth flow", "fp1")
         store.set_coach("call the landlord", "fp2")

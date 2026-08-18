@@ -35,8 +35,11 @@ class ApiTest(unittest.TestCase):
     def setUpClass(cls):
         cls.data = tempfile.mkdtemp(prefix="lp-api-test-")
         cls.port = _free_port()
+        # a missing claude binary keeps the dismissal's background re-ask hermetic:
+        # it fails fast and writes nothing instead of spawning a real model run.
         env = {**os.environ, "LIFEPLANNER_DATA": cls.data, "LIFEPLANNER_CALDAV": "0",
-               "LIFEPLANNER_PORT": str(cls.port), "LIFEPLANNER_NO_BROWSER": "1"}
+               "LIFEPLANNER_PORT": str(cls.port), "LIFEPLANNER_NO_BROWSER": "1",
+               "LIFEPLANNER_CLAUDE_BIN": "/nonexistent/claude"}
         cls.srv = subprocess.Popen([sys.executable, str(ROOT / "app.pyw")], env=env,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         token = Path(cls.data) / "token"
