@@ -156,15 +156,15 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authed():
             return self._json(401, {"error": "unauthorized"})
         path = urlparse(self.path).path
+        # read the body FIRST, for every route, even ones that ignore it: on a
+        # keep-alive connection an unread body is parsed as the next request line
+        # (the client then sees a bogus 501 on its following call).
+        data = self._body()
+        if data is None:
+            return self._json(400, {"error": "bad json"})
         if path == "/api/todos/reorder":
-            data = self._body()
-            if data is None:
-                return self._json(400, {"error": "bad json"})
             return self._json(200, {"ok": store.reorder_todos(data.get("ids", []))})
         if path == "/api/coach/chat":
-            data = self._body()
-            if data is None:
-                return self._json(400, {"error": "bad json"})
             # agentic: claude may take up to TIMEOUT to act via the lifeplanner
             # tools. the server is threaded, so this long call never blocks the
             # poller or other requests.
@@ -175,18 +175,12 @@ class Handler(BaseHTTPRequestHandler):
             # rejected nag, and brief.py is told so.
             return self._json(200, {"dismissed": store.dismiss_coach()})
         if path == "/api/coach/memory":
-            data = self._body()
-            if data is None:
-                return self._json(400, {"error": "bad json"})
             # `on` lets undo restore a deleted note with its original date.
             entry = store.add_coach_memory(data.get("note", ""), on=data.get("date", ""))
             return self._json(201, entry) if entry else self._json(400, {"error": "empty note"})
         entity = self._entity(path, exact=True)
         if entity is None:
             return self._json(404, {"error": "not found"})
-        data = self._body()
-        if data is None:
-            return self._json(400, {"error": "bad json"})
         try:
             return self._json(201, store.add_item(entity, data))
         except store.DuplicateError as e:
