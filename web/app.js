@@ -796,9 +796,14 @@ function mountList(container, items, builder, emptyMsg) {
 
 // ---- coach ------------------------------------------------------------------
 
-// the coach box: the claude-written directive line (the "next optimal move")
-// plus an agentic chat — mellen talks to the coach, which can actually add,
-// reschedule, complete, or journal on his behalf via the lifeplanner tools.
+// the coach box is deliberately small: one directive line (the next optimal
+// move, written server-side by brief.py), then an input. it stays quiet — a
+// dismissed line disappears until the planner actually moves, and a stale
+// transcript never greets you: only turns from the last few hours render, the
+// rest sit behind a count chip.
+const COACH_FRESH_MS = 12 * 3600 * 1000;   // a turn older than this is history
+let showCoachLog = false;                  // session-only: reload re-collapses
+
 function renderCoach() {
   const c = state.coach || {};
   const line = (c.line || "").trim();
@@ -807,14 +812,36 @@ function renderCoach() {
     const l = el("div", "coach-line");
     l.append(el("span", "coach-caret", "▸ "), document.createTextNode(line));
     box.appendChild(l);
+    const meta = el("div", "coach-meta");
     const ago = agoLabel(c.created);
-    box.appendChild(el("div", "coach-meta", ago ? `coach · ${ago}` : "coach"));
+    meta.appendChild(el("span", null, ago ? `coach · ${ago}` : "coach"));
+    // dismiss: kills this line until the state changes. the writer is told it
+    // was rejected, so it never comes back reworded.
+    const x = el("span", "coach-x", "×");
+    x.title = "dismiss (X)";
+    x.setAttribute("role", "button");
+    x.tabIndex = 0;
+    x.onclick = dismissCoach;
+    x.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); dismissCoach(); } };
+    meta.appendChild(x);
+    box.appendChild(meta);
   }
 
   // transcript — persisted server-side (the coach remembers across sessions and
-  // devices), plus the in-flight message and any transient error from last turn.
-  const turns = (c.chat || []).slice();
-  if (coachPending) turns.push({ role: "you", text: coachPending });
+  // devices). old turns are folded away: reopening the app should never replay a
+  // conversation from last week as if it were live.
+  const all = (c.chat || []).slice();
+  if (coachPending) all.push({ role: "you", text: coachPending, ts: new Date().toISOString() });
+  const cut = Date.now() - COACH_FRESH_MS;
+  let split = all.length;
+  while (split > 0 && !isStale(all[split - 1].ts, cut)) split--;
+  const older = all.slice(0, split), turns = showCoachLog ? all : all.slice(split);
+  if (older.length) {
+    const chip = pileChip(older.length, "earlier", showCoachLog,
+      () => { showCoachLog = !showCoachLog; render(); }, "click");
+    chip.classList.add("coach-mem-chip");
+    box.appendChild(chip);
+  }
   if (turns.length || coachBusy || coachError) {
     const log = el("div", "coach-chat");
     turns.forEach(m => {
@@ -880,6 +907,23 @@ function renderCoach() {
   form.onsubmit = (e) => { e.preventDefault(); coachSend(inp.value); };
   box.appendChild(form);
   return box;
+}
+
+// a turn with no/garbled timestamp counts as old — the safe direction: it stays
+// folded away rather than posing as part of the live conversation.
+function isStale(ts, cut) {
+  const t = ts ? new Date(ts).getTime() : NaN;
+  return isNaN(t) || t < cut;
+}
+
+// kill the current directive. it stays gone until the planner state moves —
+// the whole point is that a line you rejected can't come back reworded.
+async function dismissCoach() {
+  if (!(state.coach || {}).line) return;
+  state.coach = { ...state.coach, line: "" };   // instant, no round-trip flicker
+  render();
+  try { await api("POST", "/api/coach/dismiss", {}); } catch { }
+  refresh();
 }
 
 // one agentic turn. the message goes up; history + memory live server-side.
@@ -1492,7 +1536,8 @@ document.addEventListener("keydown", (e) => {
     case "L": if (view === "calendar") shiftMonth(1);           // jump a whole month forward
       else if (view === "todos") toggleLaterVisibility(); break;
     case "x": toggleSelTodo(); break;
-    case "X": if (view === "todos") toggleDoneVisibility(); break;
+    case "X": if (view === "todos") toggleDoneVisibility();
+      else if (view === "calendar") dismissCoach(); break;
     case "m": toggleSelHidden(); break;
     case "M": if (view === "appointments") toggleHiddenVisibility(); break;
     case "d": {

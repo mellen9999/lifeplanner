@@ -286,7 +286,11 @@ h2.section-h { font-size: 13px; color: var(--muted); font-weight: 600;
 .coach { border: 1px solid var(--accent); border-left-width: 3px; padding: 11px 13px; margin-bottom: 12px; }
 .coach-line { font-size: 15px; line-height: 1.45; color: var(--fg); }
 .coach-caret { color: var(--accent); }
-.coach-meta { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-top: 7px; }
+.coach-meta { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px;
+  margin-top: 7px; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+/* dismiss — the line goes away until the planner actually moves */
+.coach-x { cursor: pointer; padding: 0 4px; font-size: 13px; line-height: 1; }
+.coach-x:hover, .coach-x:focus { background: var(--inv-bg); color: var(--inv-fg); outline: none; }
 /* agentic coach chat — square terminal bubbles; coach can act, so replies read
    like a log of what changed */
 .coach-chat { display: flex; flex-direction: column; gap: 6px; margin-top: 10px;
