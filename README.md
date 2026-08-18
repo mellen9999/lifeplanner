@@ -80,6 +80,7 @@ nothing needs saving — it's written to disk the moment you add it.
 | `j` / `k` | move selection (lists) | | `enter` | save edit / open day |
 | `x` | toggle todo done | | `d` `d` | delete selected |
 | `X` / `L` | todos: show / hide done · later | | `u` | undo last delete |
+| `X` | calendar: dismiss the coach line | | | |
 | `m` / `M` | mute appointment · hidden pile | | `/` | filter the current list |
 | `t` · `r` · `?` | theme · refresh · help | | `esc` | cancel / close |
 
@@ -114,9 +115,13 @@ any mcp client — claude desktop, claude code, etc.)
 two pieces, both optional, both riding the same local files:
 
 - **the directive** — one next-move line beside the calendar, shown with its age so stale advice
-  looks stale. anything can write it — a script on a timer, typically an llm that read
-  `whats_slipping` first: `python3 -c "import store; store.set_coach('close out the passport — it
-  blocks the flights')"`. writing the same line twice is a no-op, so a timer never causes churn.
+  looks stale. `brief.py` writes it on a timer, and it is built to shut up: it fingerprints the
+  planner state and skips the llm entirely while nothing has moved, it sees its own recent lines
+  (and which ones you dismissed) so it can't re-nag, a repeat is rejected in code rather than
+  trusted to the model, and it may answer "nothing new". press `X` (or click `×`) to dismiss a
+  line — it stays gone until the state actually changes. `brief.py --notify` pushes the same line
+  to ntfy once, so the push and the ui are one voice, never two. anything else can write the line
+  too: `python3 -c "import store; store.set_coach('close out the passport — it blocks the flights')"`.
 - **the chat** — the coach box beside the calendar (`c` focuses it; enter sends, shift+enter newlines — dump
   whole paragraphs at it). your message runs the
   [claude cli](https://claude.com/claude-code) headless with **only lifeplanner's
@@ -127,7 +132,11 @@ two pieces, both optional, both riding the same local files:
   across devices and is readable by **any** mcp client via `get_coach_chat`, and a `remember` tool
   lets it keep durable facts about you that feed every future prompt. what it knows is **inspectable**:
   the memory notes show under the chat (collapsed count, expandable, deletable — `forget` does the
-  same from an assistant). needs the mcp install (above) plus the `claude` cli on the machine
+  same from an assistant). notes are fed to every prompt **with their age**, because an undated
+  snapshot is how a two-week-old situation comes back as today's advice; `distill.py` (nightly)
+  is the deterministic backstop that saves what the live coach forgot to, and saves durable facts
+  only. the box shows the current conversation, not your history — turns older than 12 hours fold
+  behind a count. needs the mcp install (above) plus the `claude` cli on the machine
   running the app. tune with `LIFEPLANNER_COACH_TIMEOUT` / `LIFEPLANNER_CLAUDE_BIN`.
 
 with no directive set the line simply isn't there; with no `claude` cli a chat just answers
@@ -293,6 +302,7 @@ all optional, via environment variables:
 | `LIFEPLANNER_NUDGE` | unset | set to `off` to disable nudges entirely |
 | `LIFEPLANNER_NTFY_ALARM_TOPIC` | unset | separate ntfy topic for appointment reminders (defaults to the main topic) |
 | `LIFEPLANNER_COACH_TIMEOUT` | `150` | max seconds a coach chat turn may run |
+| `LIFEPLANNER_BRIEF_TIMEOUT` | `180` | max seconds `brief.py` may spend writing the directive |
 | `LIFEPLANNER_CLAUDE_BIN` | `claude` | path to the claude cli the coach chat runs |
 | `LIFEPLANNER_CALDAV` | unset | set to `off` to force local-only appointments (ignore `.caldav.json`) |
 | `LIFEPLANNER_BACKUP_HOST` · `_DIR` · `_KEEP` | unset | `backup.sh` target ssh host · remote dir (`backups/lifeplanner`) · tarballs kept (`14`) |
@@ -304,6 +314,8 @@ app.pyw          web server + rest api (stdlib only)
 store.py         shared data layer — atomic writes, file lock, .ics generation
 mcp_server.py    mcp server (assistant's door; needs the mcp sdk)
 coach_chat.py    coach chat backend — runs the claude cli with planner-only tools
+brief.py         the coach directive — writes the next-move line only when the state moved
+distill.py       nightly backstop that saves durable facts out of the coach chat
 caldav_store.py  optional caldav backend for two-way phone sync (needs icalendar/defusedxml)
 reminders.py     optional ntfy push reminders (run on a timer)
 nudge.py         optional standup / review / journal pushes + the auto-diary digest
