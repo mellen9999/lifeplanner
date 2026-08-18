@@ -16,20 +16,30 @@ import json
 import os
 import urllib.request
 
-SERVER = os.environ.get("LIFEPLANNER_NTFY_SERVER", "").strip().rstrip("/")
-TOPIC = os.environ.get("LIFEPLANNER_NTFY_TOPIC", "").strip()
-ALARM_TOPIC = os.environ.get("LIFEPLANNER_NTFY_ALARM_TOPIC", "").strip()
-APP_URL = os.environ.get("LIFEPLANNER_URL", "").strip()
+# read at call time, never at import: a module that pulls this one in early
+# (a shared helper, a test) must not be able to freeze an empty config.
+
+def _env(name, strip_slash=False):
+    v = os.environ.get(name, "").strip()
+    return v.rstrip("/") if strip_slash else v
+
+
+def server():
+    return _env("LIFEPLANNER_NTFY_SERVER", strip_slash=True)
+
+
+def topic():
+    return _env("LIFEPLANNER_NTFY_TOPIC")
 
 
 def configured():
-    return bool(SERVER and TOPIC)
+    return bool(server() and topic())
 
 
 def alarm_topic():
     """topic for wake-you-up appointment alarms — its own when configured, else the
     normal topic (alarms still fire, just without a distinct sound)."""
-    return ALARM_TOPIC or TOPIC
+    return _env("LIFEPLANNER_NTFY_ALARM_TOPIC") or topic()
 
 
 def send(title, message, priority=4, tags=None, click="", view="", topic=""):
@@ -38,14 +48,14 @@ def send(title, message, priority=4, tags=None, click="", view="", topic=""):
     to advance its once-only state and retry the window next run."""
     if not configured():
         return False
-    payload = {"topic": topic or TOPIC, "title": title, "message": message,
+    payload = {"topic": topic or _env("LIFEPLANNER_NTFY_TOPIC"), "title": title, "message": message,
                "priority": int(priority)}
     if tags:
         payload["tags"] = list(tags)
-    link = click or (APP_URL + ("#" + view if view else ""))
+    link = click or (_env("LIFEPLANNER_URL") + ("#" + view if view else ""))
     if link:
         payload["click"] = link
     body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(SERVER + "/", data=body)
+    req = urllib.request.Request(server() + "/", data=body)
     urllib.request.urlopen(req, timeout=10).read()
     return True
