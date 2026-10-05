@@ -939,6 +939,22 @@ def occurrences_in(appt, start_iso, end_iso):
     return _occurrences(appt.get("when", ""), appt.get("recur") or "", start_iso, end_iso)
 
 
+def as_occurrence(appt, when):
+    """the appointment as it falls on one occurrence: `when` swapped in and `end`
+    moved by the same number of days, so a repeat of a tue 8am–noon block ends
+    that tue at noon — not on the anchor's date. an unparseable end is dropped."""
+    occ = {**appt, "when": when}
+    end = appt.get("end")
+    if not end:
+        return occ
+    try:
+        shift = date.fromisoformat(when[:10]) - date.fromisoformat(appt["when"][:10])
+        occ["end"] = (date.fromisoformat(end[:10]) + shift).isoformat() + end[10:]
+    except (KeyError, ValueError):
+        occ.pop("end")
+    return occ
+
+
 def todo_occurrences(todo, start_iso, end_iso):
     """todo due-dates in [start, end] — anchored on its `due`. a recurring todo
     (a routine) expands to every occurrence; a one-off resolves to its single due."""
@@ -1033,7 +1049,7 @@ def days(start, end):
         if a.get("hidden"):
             continue
         for w in occurrences_in(a, s, e):
-            slot(w[:10])["appointments"].append({**a, "when": w})
+            slot(w[:10])["appointments"].append(as_occurrence(a, w))
     # recurring todos (routines) expand to every occurrence in range, each tagged
     # with its occurrence date (`due`) + whether it's done on that day, so the ui
     # can render and tick the right instance. one-off todos drop on their due.

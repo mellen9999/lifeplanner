@@ -219,6 +219,21 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(len(d["appointments"]), 1)
         self.assertEqual(d["appointments"][0]["when"], "2026-06-25T09:00")
 
+    def test_occurrence_end_moves_with_it(self):
+        store.add_item("appointments",
+                       {"title": "laundry", "when": "2026-10-06 08:00", "end": "2026-10-06 12:00",
+                        "recur": "weekly"})
+        a = store.day("2026-10-13")["appointments"][0]
+        self.assertEqual((a["when"], a["end"]), ("2026-10-13T08:00", "2026-10-13T12:00"))
+
+    def test_occurrence_multiday_span_kept(self):
+        a = {"when": "2026-06-11", "end": "2026-06-13"}
+        self.assertEqual(store.as_occurrence(a, "2026-06-25")["end"], "2026-06-27")
+
+    def test_occurrence_bad_end_dropped(self):
+        a = {"when": "2026-06-11", "end": "garbage"}
+        self.assertNotIn("end", store.as_occurrence(a, "2026-06-25"))
+
     def test_non_occurrence_day_empty(self):
         store.add_item("appointments",
                        {"title": "bhc", "when": "2026-06-11",

@@ -27,7 +27,7 @@ def _upcoming(appts, today):
     for a in appts:
         nxt = store.next_occurrence(a, today)
         if nxt:
-            out.append({**a, "when": nxt})
+            out.append(store.as_occurrence(a, nxt))
     return sorted(out, key=lambda a: a["when"])
 
 
